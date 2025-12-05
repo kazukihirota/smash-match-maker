@@ -3,19 +3,15 @@ import { useState, useEffect } from 'react'
 const STORAGE_KEY = 'smash-match-maker-names'
 
 interface Match {
-  person1: string
-  person2: string
-  timestamp: number
+  player1: string
+  player2: string
 }
 
 function App() {
   const [names, setNames] = useState<string[]>([])
   const [newName, setNewName] = useState('')
-  const [currentMatch, setCurrentMatch] = useState<Match | null>(null)
-  const [matchHistory, setMatchHistory] = useState<Match[]>([])
-  const [isDrawing, setIsDrawing] = useState(false)
+  const [matches, setMatches] = useState<Match[]>([])
 
-  // Load names from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved) {
@@ -27,7 +23,6 @@ function App() {
     }
   }, [])
 
-  // Save names to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(names))
   }, [names])
@@ -42,151 +37,152 @@ function App() {
 
   const removeName = (nameToRemove: string) => {
     setNames(names.filter(name => name !== nameToRemove))
+    setMatches([])
   }
 
   const clearAll = () => {
-    if (confirm('Clear all names?')) {
+    if (confirm('Clear all players?')) {
       setNames([])
-      setCurrentMatch(null)
-      setMatchHistory([])
+      setMatches([])
     }
   }
 
-  const drawMatch = async () => {
-    if (names.length < 2) return
-
-    setIsDrawing(true)
-    setCurrentMatch(null)
-
-    // Shuffle animation
-    const shuffleCount = 10
-    for (let i = 0; i < shuffleCount; i++) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-      const shuffled = [...names].sort(() => Math.random() - 0.5)
-      setCurrentMatch({
-        person1: shuffled[0],
-        person2: shuffled[1],
-        timestamp: Date.now()
-      })
+  // Generate all unique pairs with optimized order (minimize wait time)
+  const generateMatches = () => {
+    const allPairs: Match[] = []
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) {
+        allPairs.push({ player1: names[i], player2: names[j] })
+      }
     }
 
-    // Final selection
-    const shuffled = [...names].sort(() => Math.random() - 0.5)
-    const match: Match = {
-      person1: shuffled[0],
-      person2: shuffled[1],
-      timestamp: Date.now()
+    // Shuffle first for randomness
+    const shuffled = allPairs.sort(() => Math.random() - 0.5)
+
+    // Reorder to minimize wait time between matches for each player
+    const result: Match[] = []
+    const remaining = [...shuffled]
+
+    while (remaining.length > 0) {
+      if (result.length === 0) {
+        result.push(remaining.shift()!)
+      } else {
+        const lastMatch = result[result.length - 1]
+        const lastPlayers = [lastMatch.player1, lastMatch.player2]
+
+        // Find a match that doesn't include players from the last match
+        const nextIdx = remaining.findIndex(
+          m => !lastPlayers.includes(m.player1) && !lastPlayers.includes(m.player2)
+        )
+
+        if (nextIdx !== -1) {
+          result.push(remaining.splice(nextIdx, 1)[0])
+        } else {
+          // No match without overlap, just take the first available
+          result.push(remaining.shift()!)
+        }
+      }
     }
-    setCurrentMatch(match)
-    setMatchHistory(prev => [match, ...prev].slice(0, 10))
-    setIsDrawing(false)
+
+    setMatches(result)
   }
+
+  const totalMatches = names.length * (names.length - 1) / 2
 
   return (
     <div className="min-h-screen p-4 pb-8">
       <div className="max-w-md mx-auto">
         {/* Header */}
-        <h1 className="text-3xl font-bold text-white text-center mb-6 drop-shadow-lg">
-          Smash Match Maker 💕
-        </h1>
-
-        {/* Add Name Form */}
-        <div className="bg-white/90 backdrop-blur rounded-2xl p-4 shadow-xl mb-4">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addName()}
-              placeholder="Enter a name..."
-              className="flex-1 px-4 py-3 rounded-xl border-2 border-purple-200 focus:border-purple-500 focus:outline-none text-lg"
-            />
-            <button
-              onClick={addName}
-              disabled={!newName.trim()}
-              className="px-6 py-3 bg-purple-600 text-white rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-transform"
-            >
-              Add
-            </button>
-          </div>
+        <div className="flex items-center justify-center mb-8 pt-4">
+          <h1 className="text-3xl font-bold">
+            <span className="text-white">Smash</span>
+            <span className="text-amber-500 italic"> Match Maker</span>
+          </h1>
         </div>
 
-        {/* Names List */}
-        <div className="bg-white/90 backdrop-blur rounded-2xl p-4 shadow-xl mb-4">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold text-gray-700">
-              Names ({names.length})
-            </h2>
+        {/* Add Name */}
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addName()}
+            placeholder="Enter Player Name"
+            className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg focus:outline-none focus:border-neutral-500"
+          />
+          <button
+            onClick={addName}
+            disabled={!newName.trim()}
+            className="px-4 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
+          >
+            Add
+          </button>
+        </div>
+
+        {/* Players List */}
+        <div className="bg-neutral-800 rounded-lg mb-4 overflow-hidden">
+          <div className="flex justify-between items-center px-4 py-3 bg-neutral-700">
+            <span className="text-white font-bold uppercase text-sm">Players ({names.length})</span>
             {names.length > 0 && (
-              <button
-                onClick={clearAll}
-                className="text-sm text-red-500 hover:text-red-700"
-              >
-                Clear All
+              <button onClick={clearAll} className="text-sm text-red-400 hover:text-red-300">
+                Clear
               </button>
             )}
           </div>
 
-          {names.length === 0 ? (
-            <p className="text-gray-400 text-center py-4">
-              Add at least 2 names to start matching!
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {names.map((name) => (
-                <span
-                  key={name}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-purple-100 to-pink-100 rounded-full text-purple-700 font-medium"
-                >
-                  {name}
-                  <button
-                    onClick={() => removeName(name)}
-                    className="ml-1 w-5 h-5 flex items-center justify-center rounded-full hover:bg-purple-200 text-purple-500"
+          <div className="p-4">
+            {names.length === 0 ? (
+              <p className="text-neutral-400 text-center py-2">
+                Add at least 2 players to begin matchmaking.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {names.map((name) => (
+                  <span
+                    key={name}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-neutral-700 rounded-full text-white"
                   >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+                    {name}
+                    <button
+                      onClick={() => removeName(name)}
+                      className="ml-1 text-neutral-400 hover:text-white"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Draw Button */}
+        {/* Generate Button */}
         <button
-          onClick={drawMatch}
-          disabled={names.length < 2 || isDrawing}
-          className="w-full py-4 bg-gradient-to-r from-pink-500 to-orange-400 text-white text-xl font-bold rounded-2xl shadow-xl disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform mb-4"
+          onClick={generateMatches}
+          disabled={names.length < 2}
+          className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform mb-4 shadow-lg shadow-orange-500/30"
         >
-          {isDrawing ? '🎲 Drawing...' : '🎲 Draw Match!'}
+          Generate {totalMatches > 0 ? `${totalMatches} Matches` : 'Matches'}
         </button>
 
-        {/* Current Match Result */}
-        {currentMatch && (
-          <div className="bg-white/90 backdrop-blur rounded-2xl p-6 shadow-xl mb-4 text-center animate-[bounce_0.5s_ease-in-out]">
-            <p className="text-sm text-gray-500 mb-2">Match Result</p>
-            <div className="flex items-center justify-center gap-4 text-2xl font-bold">
-              <span className="text-purple-600">{currentMatch.person1}</span>
-              <span className="text-3xl">💕</span>
-              <span className="text-pink-600">{currentMatch.person2}</span>
+        {/* Match List */}
+        {matches.length > 0 && (
+          <div className="bg-neutral-800 rounded-lg overflow-hidden">
+            <div className="px-4 py-3 bg-neutral-700">
+              <span className="text-white font-bold uppercase text-sm">Match Order</span>
             </div>
-          </div>
-        )}
-
-        {/* Match History */}
-        {matchHistory.length > 1 && (
-          <div className="bg-white/90 backdrop-blur rounded-2xl p-4 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-700 mb-3">
-              History
-            </h2>
-            <div className="space-y-2">
-              {matchHistory.slice(1).map((match, idx) => (
+            <div className="p-2">
+              {matches.map((match, idx) => (
                 <div
-                  key={match.timestamp + idx}
-                  className="flex items-center justify-center gap-2 text-gray-600 text-sm py-1 border-b border-gray-100 last:border-0"
+                  key={idx}
+                  className="flex items-center bg-neutral-700/50 rounded-lg px-4 py-3 mb-2 last:mb-0"
                 >
-                  <span>{match.person1}</span>
-                  <span className="text-pink-400">💕</span>
-                  <span>{match.person2}</span>
+                  <span className="text-neutral-500 text-sm w-8">{idx + 1}.</span>
+                  <div className="flex-1 flex items-center justify-center gap-3 text-white font-medium">
+                    <span>{match.player1}</span>
+                    <span className="text-amber-500 font-bold">VS</span>
+                    <span>{match.player2}</span>
+                  </div>
                 </div>
               ))}
             </div>
