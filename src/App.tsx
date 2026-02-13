@@ -1,16 +1,94 @@
 import { useState, useEffect } from 'react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 const STORAGE_KEY = 'smash-match-maker-names'
 
 interface Match {
+  id: string
   player1: string
   player2: string
 }
+
+function SortableMatch({
+  match,
+  index,
+  done,
+  onToggle,
+}: {
+  match: Match
+  index: number
+  done: boolean
+  onToggle: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: match.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center rounded-lg px-4 py-3 mb-2 last:mb-0 select-none transition-all ${isDragging ? 'bg-neutral-600 shadow-lg' : done ? 'bg-neutral-800/50 opacity-40' : 'bg-neutral-700/50'}`}
+    >
+      {/* Drag handle */}
+      <span
+        {...attributes}
+        {...listeners}
+        className="text-neutral-500 mr-2 cursor-grab active:cursor-grabbing touch-none"
+      >
+        ⠿
+      </span>
+      <span className="text-neutral-500 text-sm w-8">{index + 1}.</span>
+      <div
+        onClick={onToggle}
+        className={`flex-1 flex items-center justify-center gap-3 font-medium cursor-pointer ${done ? 'line-through text-neutral-500' : 'text-white'}`}
+      >
+        <span>{match.player1}</span>
+        <span className={`font-bold ${done ? 'text-neutral-500' : 'text-amber-500'}`}>VS</span>
+        <span>{match.player2}</span>
+      </div>
+    </div>
+  )
+}
+
+let matchIdCounter = 0
 
 function App() {
   const [names, setNames] = useState<string[]>([])
   const [newName, setNewName] = useState('')
   const [matches, setMatches] = useState<Match[]>([])
+  const [completedMatches, setCompletedMatches] = useState<Set<string>>(new Set())
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  )
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY)
@@ -52,7 +130,7 @@ function App() {
     const allPairs: Match[] = []
     for (let i = 0; i < names.length; i++) {
       for (let j = i + 1; j < names.length; j++) {
-        allPairs.push({ player1: names[i], player2: names[j] })
+        allPairs.push({ id: `match-${++matchIdCounter}`, player1: names[i], player2: names[j] })
       }
     }
 
@@ -85,6 +163,30 @@ function App() {
     }
 
     setMatches(result)
+    setCompletedMatches(new Set())
+  }
+
+  const toggleMatch = (id: string) => {
+    setCompletedMatches(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      setMatches(prev => {
+        const oldIndex = prev.findIndex(m => m.id === active.id)
+        const newIndex = prev.findIndex(m => m.id === over.id)
+        return arrayMove(prev, oldIndex, newIndex)
+      })
+    }
   }
 
   const totalMatches = names.length * (names.length - 1) / 2
@@ -169,23 +271,27 @@ function App() {
         {matches.length > 0 && (
           <div className="bg-neutral-800 rounded-lg overflow-hidden">
             <div className="px-4 py-3 bg-neutral-700">
-              <span className="text-white font-bold uppercase text-sm">Match Order</span>
+              <span className="text-white font-bold uppercase text-sm">Match Order ({completedMatches.size}/{matches.length})</span>
             </div>
-            <div className="p-2">
-              {matches.map((match, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center bg-neutral-700/50 rounded-lg px-4 py-3 mb-2 last:mb-0"
-                >
-                  <span className="text-neutral-500 text-sm w-8">{idx + 1}.</span>
-                  <div className="flex-1 flex items-center justify-center gap-3 text-white font-medium">
-                    <span>{match.player1}</span>
-                    <span className="text-amber-500 font-bold">VS</span>
-                    <span>{match.player2}</span>
-                  </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={matches.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                <div className="p-2">
+                  {matches.map((match, idx) => (
+                    <SortableMatch
+                      key={match.id}
+                      match={match}
+                      index={idx}
+                      done={completedMatches.has(match.id)}
+                      onToggle={() => toggleMatch(match.id)}
+                    />
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
           </div>
         )}
       </div>
