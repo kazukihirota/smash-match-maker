@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Match, Role } from './types.ts'
+import { supabase } from './supabase.ts'
 
 const STORAGE_KEY = 'smash-match-maker-names'
 
@@ -84,8 +85,7 @@ interface RoomProps {
   onLeave: () => void
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function Room({ roomCode, role, creatorToken: _creatorToken, onLeave }: RoomProps) {
+export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
   const isCreator = role === 'creator'
   const [names, setNames] = useState<string[]>([])
   const [newName, setNewName] = useState('')
@@ -96,14 +96,28 @@ export function Room({ roomCode, role, creatorToken: _creatorToken, onLeave }: R
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
   )
 
+  const syncRoom = async (updates: { players?: string[]; matches?: Match[] }) => {
+    if (!isCreator || !creatorToken) return
+    await supabase
+      .from('rooms')
+      .update(updates)
+      .eq('room_code', roomCode)
+  }
+
   useEffect(() => {
-    if (isCreator) {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        try { setNames(JSON.parse(saved)) } catch { /* ignore */ }
+    const loadRoom = async () => {
+      const { data } = await supabase
+        .from('rooms')
+        .select('players, matches')
+        .eq('room_code', roomCode)
+        .single()
+      if (data) {
+        setNames(data.players)
+        setMatches(data.matches as Match[])
       }
     }
-  }, [isCreator])
+    loadRoom()
+  }, [roomCode])
 
   useEffect(() => {
     if (isCreator) {
@@ -114,20 +128,25 @@ export function Room({ roomCode, role, creatorToken: _creatorToken, onLeave }: R
   const addName = () => {
     const trimmed = newName.trim()
     if (trimmed && !names.includes(trimmed)) {
-      setNames([...names, trimmed])
+      const updated = [...names, trimmed]
+      setNames(updated)
       setNewName('')
+      syncRoom({ players: updated })
     }
   }
 
   const removeName = (nameToRemove: string) => {
-    setNames(names.filter(name => name !== nameToRemove))
+    const updated = names.filter(name => name !== nameToRemove)
+    setNames(updated)
     setMatches([])
+    syncRoom({ players: updated, matches: [] })
   }
 
   const clearAll = () => {
     if (confirm('Clear all players?')) {
       setNames([])
       setMatches([])
+      syncRoom({ players: [], matches: [] })
     }
   }
 
@@ -167,12 +186,15 @@ export function Room({ roomCode, role, creatorToken: _creatorToken, onLeave }: R
     }
 
     setMatches(result)
+    syncRoom({ matches: result })
   }
 
   const toggleMatch = (id: string) => {
-    setMatches(prev =>
-      prev.map(m => m.id === id ? { ...m, completed: !m.completed } : m)
-    )
+    setMatches(prev => {
+      const updated = prev.map(m => m.id === id ? { ...m, completed: !m.completed } : m)
+      syncRoom({ matches: updated })
+      return updated
+    })
   }
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -181,7 +203,9 @@ export function Room({ roomCode, role, creatorToken: _creatorToken, onLeave }: R
       setMatches(prev => {
         const oldIndex = prev.findIndex(m => m.id === active.id)
         const newIndex = prev.findIndex(m => m.id === over.id)
-        return arrayMove(prev, oldIndex, newIndex)
+        const updated = arrayMove(prev, oldIndex, newIndex)
+        syncRoom({ matches: updated })
+        return updated
       })
     }
   }
