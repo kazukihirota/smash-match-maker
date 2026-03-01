@@ -90,6 +90,7 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
   const [names, setNames] = useState<string[]>([])
   const [newName, setNewName] = useState('')
   const [matches, setMatches] = useState<Match[]>([])
+  const [loading, setLoading] = useState(true)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -114,10 +115,13 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
       if (data) {
         setNames(data.players)
         setMatches(data.matches as Match[])
+      } else {
+        onLeave()
       }
+      setLoading(false)
     }
     loadRoom()
-  }, [roomCode])
+  }, [roomCode, onLeave])
 
   useEffect(() => {
     const channel = supabase
@@ -236,6 +240,14 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
 
   const completedCount = matches.filter(m => m.completed).length
   const totalMatches = names.length * (names.length - 1) / 2
+
+  if (loading) {
+    return (
+      <div className="min-h-screen p-4 flex items-center justify-center">
+        <p className="text-neutral-400">Loading room...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen p-4 pb-8">
