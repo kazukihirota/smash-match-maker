@@ -15,7 +15,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Match, Role } from './types.ts'
+import type { Match, Role, Room as RoomData } from './types.ts'
 import { supabase } from './supabase.ts'
 
 const STORAGE_KEY = 'smash-match-maker-names'
@@ -117,6 +117,30 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
       }
     }
     loadRoom()
+  }, [roomCode])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`room-${roomCode}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rooms',
+          filter: `room_code=eq.${roomCode}`,
+        },
+        (payload) => {
+          const newData = payload.new as RoomData
+          setNames(newData.players)
+          setMatches(newData.matches)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [roomCode])
 
   useEffect(() => {
