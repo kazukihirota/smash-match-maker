@@ -1,298 +1,154 @@
-import { useState, useEffect } from 'react'
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-  arrayMove,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import { useState } from 'react'
+import { supabase } from './supabase.ts'
+import { Room } from './Room.tsx'
+import type { Role } from './types.ts'
 
-const STORAGE_KEY = 'smash-match-maker-names'
-
-interface Match {
-  id: string
-  player1: string
-  player2: string
-}
-
-function SortableMatch({
-  match,
-  index,
-  done,
-  onToggle,
-}: {
-  match: Match
-  index: number
-  done: boolean
-  onToggle: () => void
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: match.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 10 : undefined,
-  }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`flex items-center rounded-lg px-4 py-3 mb-2 last:mb-0 select-none transition-all ${isDragging ? 'bg-neutral-600 shadow-lg' : done ? 'bg-neutral-800/50 opacity-40' : 'bg-neutral-700/50'}`}
-    >
-      {/* Drag handle */}
-      <span
-        {...attributes}
-        {...listeners}
-        className="text-neutral-500 mr-2 cursor-grab active:cursor-grabbing touch-none"
-      >
-        ⠿
-      </span>
-      <span className="text-neutral-500 text-sm w-8">{index + 1}.</span>
-      <div
-        onClick={onToggle}
-        className={`flex-1 flex items-center justify-center gap-3 font-medium cursor-pointer ${done ? 'line-through text-neutral-500' : 'text-white'}`}
-      >
-        <span>{match.player1}</span>
-        <span className={`font-bold ${done ? 'text-neutral-500' : 'text-amber-500'}`}>VS</span>
-        <span>{match.player2}</span>
-      </div>
-    </div>
-  )
-}
-
-let matchIdCounter = 0
+const CREATOR_TOKEN_KEY = 'smash-creator-token'
 
 function App() {
-  const [names, setNames] = useState<string[]>([])
-  const [newName, setNewName] = useState('')
-  const [matches, setMatches] = useState<Match[]>([])
-  const [completedMatches, setCompletedMatches] = useState<Set<string>>(new Set())
+  const [roomCode, setRoomCode] = useState<number | null>(null)
+  const [role, setRole] = useState<Role | null>(null)
+  const [joinInput, setJoinInput] = useState('')
+  const [showJoin, setShowJoin] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
-  )
+  const createRoom = async () => {
+    setLoading(true)
+    setError('')
+    const token = crypto.randomUUID()
+    const code = Math.floor(1000 + Math.random() * 9000)
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) {
-      try {
-        setNames(JSON.parse(saved))
-      } catch {
-        // Invalid JSON, ignore
+    const { error: insertError } = await supabase
+      .from('rooms')
+      .insert({ room_code: code, creator_token: token })
+
+    if (insertError) {
+      const retryCode = Math.floor(1000 + Math.random() * 9000)
+      const { error: retryError } = await supabase
+        .from('rooms')
+        .insert({ room_code: retryCode, creator_token: token })
+
+      if (retryError) {
+        setError('Failed to create room. Try again.')
+        setLoading(false)
+        return
       }
+      localStorage.setItem(CREATOR_TOKEN_KEY, token)
+      setRoomCode(retryCode)
+    } else {
+      localStorage.setItem(CREATOR_TOKEN_KEY, token)
+      setRoomCode(code)
     }
-  }, [])
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(names))
-  }, [names])
-
-  const addName = () => {
-    const trimmed = newName.trim()
-    if (trimmed && !names.includes(trimmed)) {
-      setNames([...names, trimmed])
-      setNewName('')
-    }
+    setRole('creator')
+    setLoading(false)
   }
 
-  const removeName = (nameToRemove: string) => {
-    setNames(names.filter(name => name !== nameToRemove))
-    setMatches([])
-  }
-
-  const clearAll = () => {
-    if (confirm('Clear all players?')) {
-      setNames([])
-      setMatches([])
-    }
-  }
-
-  // Generate all unique pairs with optimized order (minimize wait time)
-  const generateMatches = () => {
-    const allPairs: Match[] = []
-    for (let i = 0; i < names.length; i++) {
-      for (let j = i + 1; j < names.length; j++) {
-        allPairs.push({ id: `match-${++matchIdCounter}`, player1: names[i], player2: names[j] })
-      }
+  const joinRoom = async () => {
+    setLoading(true)
+    setError('')
+    const code = parseInt(joinInput, 10)
+    if (isNaN(code) || code < 1000 || code > 9999) {
+      setError('Enter a valid 4-digit room code.')
+      setLoading(false)
+      return
     }
 
-    // Shuffle first for randomness
-    const shuffled = allPairs.sort(() => Math.random() - 0.5)
+    const { data, error: fetchError } = await supabase
+      .from('rooms')
+      .select('room_code, created_at')
+      .eq('room_code', code)
+      .single()
 
-    // Reorder to minimize wait time between matches for each player
-    const result: Match[] = []
-    const remaining = [...shuffled]
-
-    while (remaining.length > 0) {
-      if (result.length === 0) {
-        result.push(remaining.shift()!)
-      } else {
-        const lastMatch = result[result.length - 1]
-        const lastPlayers = [lastMatch.player1, lastMatch.player2]
-
-        // Find a match that doesn't include players from the last match
-        const nextIdx = remaining.findIndex(
-          m => !lastPlayers.includes(m.player1) && !lastPlayers.includes(m.player2)
-        )
-
-        if (nextIdx !== -1) {
-          result.push(remaining.splice(nextIdx, 1)[0])
-        } else {
-          // No match without overlap, just take the first available
-          result.push(remaining.shift()!)
-        }
-      }
+    if (fetchError || !data) {
+      setError('Room not found.')
+      setLoading(false)
+      return
     }
 
-    setMatches(result)
-    setCompletedMatches(new Set())
-  }
-
-  const toggleMatch = (id: string) => {
-    setCompletedMatches(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      setMatches(prev => {
-        const oldIndex = prev.findIndex(m => m.id === active.id)
-        const newIndex = prev.findIndex(m => m.id === over.id)
-        return arrayMove(prev, oldIndex, newIndex)
-      })
+    const created = new Date(data.created_at).getTime()
+    if (Date.now() - created > 24 * 60 * 60 * 1000) {
+      setError('Room has expired.')
+      setLoading(false)
+      return
     }
+
+    setRoomCode(code)
+    setRole('viewer')
+    setLoading(false)
   }
 
-  const totalMatches = names.length * (names.length - 1) / 2
+  const leaveRoom = () => {
+    setRoomCode(null)
+    setRole(null)
+    setJoinInput('')
+    setShowJoin(false)
+    setError('')
+  }
+
+  if (roomCode && role) {
+    return (
+      <Room
+        roomCode={roomCode}
+        role={role}
+        creatorToken={role === 'creator' ? localStorage.getItem(CREATOR_TOKEN_KEY)! : null}
+        onLeave={leaveRoom}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen p-4 pb-8">
-      <div className="max-w-md mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-center mb-8 pt-4">
-          <h1 className="text-3xl font-bold">
+      <div className="max-w-md mx-auto flex flex-col items-center justify-center min-h-[80vh]">
+        <div className="mb-12">
+          <h1 className="text-3xl font-bold text-center">
             <span className="text-white">Smash</span>
             <span className="text-amber-500 italic"> Match Maker</span>
           </h1>
         </div>
 
-        {/* Add Name */}
-        <div className="flex gap-2 mb-4">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addName()}
-            placeholder="Enter Player Name"
-            className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg focus:outline-none focus:border-neutral-500"
-          />
+        <div className="w-full space-y-4">
           <button
-            onClick={addName}
-            disabled={!newName.trim()}
-            className="px-4 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
+            onClick={createRoom}
+            disabled={loading}
+            className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform shadow-lg shadow-orange-500/30"
           >
-            Add
+            {loading ? 'Creating...' : 'Create Room'}
           </button>
-        </div>
 
-        {/* Players List */}
-        <div className="bg-neutral-800 rounded-lg mb-4 overflow-hidden">
-          <div className="flex justify-between items-center px-4 py-3 bg-neutral-700">
-            <span className="text-white font-bold uppercase text-sm">Players ({names.length})</span>
-            {names.length > 0 && (
-              <button onClick={clearAll} className="text-sm text-red-400 hover:text-red-300">
-                Clear
-              </button>
-            )}
-          </div>
-
-          <div className="p-4">
-            {names.length === 0 ? (
-              <p className="text-neutral-400 text-center py-2">
-                Add at least 2 players to begin matchmaking.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {names.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-neutral-700 rounded-full text-white"
-                  >
-                    {name}
-                    <button
-                      onClick={() => removeName(name)}
-                      className="ml-1 text-neutral-400 hover:text-white"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Generate Button */}
-        <button
-          onClick={generateMatches}
-          disabled={names.length < 2}
-          className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform mb-4 shadow-lg shadow-orange-500/30"
-        >
-          Generate {totalMatches > 0 ? `${totalMatches} Matches` : 'Matches'}
-        </button>
-
-        {/* Match List */}
-        {matches.length > 0 && (
-          <div className="bg-neutral-800 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 bg-neutral-700">
-              <span className="text-white font-bold uppercase text-sm">Match Order ({completedMatches.size}/{matches.length})</span>
-            </div>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
+          {!showJoin ? (
+            <button
+              onClick={() => setShowJoin(true)}
+              className="w-full py-4 bg-neutral-700 text-white text-xl font-bold uppercase rounded-lg active:scale-[0.98] transition-transform"
             >
-              <SortableContext items={matches.map(m => m.id)} strategy={verticalListSortingStrategy}>
-                <div className="p-2">
-                  {matches.map((match, idx) => (
-                    <SortableMatch
-                      key={match.id}
-                      match={match}
-                      index={idx}
-                      done={completedMatches.has(match.id)}
-                      onToggle={() => toggleMatch(match.id)}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          </div>
+              Join Room
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                value={joinInput}
+                onChange={(e) => setJoinInput(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={(e) => e.key === 'Enter' && joinRoom()}
+                placeholder="Room Code"
+                className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg text-center tracking-widest focus:outline-none focus:border-neutral-500"
+                autoFocus
+              />
+              <button
+                onClick={joinRoom}
+                disabled={loading || joinInput.length !== 4}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
+              >
+                Join
+              </button>
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <p className="mt-4 text-red-400 text-center">{error}</p>
         )}
       </div>
     </div>
