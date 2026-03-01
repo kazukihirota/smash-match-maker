@@ -108,13 +108,15 @@ function App() {
         </div>
 
         <div className="w-full space-y-4">
-          <button
-            onClick={createRoom}
-            disabled={loading}
-            className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform shadow-lg shadow-orange-500/30"
-          >
-            {loading ? 'Creating...' : 'Create Room'}
-          </button>
+          {!showJoin && (
+            <button
+              onClick={createRoom}
+              disabled={loading}
+              className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform shadow-lg shadow-orange-500/30"
+            >
+              {loading ? 'Creating...' : 'Create Room'}
+            </button>
+          )}
 
           {!showJoin ? (
             <button
@@ -124,24 +126,32 @@ function App() {
               Join Room
             </button>
           ) : (
-            <div className="flex gap-2">
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={4}
-                value={joinInput}
-                onChange={(e) => setJoinInput(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={(e) => e.key === 'Enter' && joinRoom()}
-                placeholder="Room Code"
-                className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg text-center tracking-widest focus:outline-none focus:border-neutral-500"
-                autoFocus
-              />
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={joinInput}
+                  onChange={(e) => setJoinInput(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(e) => e.key === 'Enter' && joinRoom()}
+                  placeholder="Room Code"
+                  className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg text-center tracking-widest focus:outline-none focus:border-neutral-500"
+                  autoFocus
+                />
+                <button
+                  onClick={joinRoom}
+                  disabled={loading || joinInput.length !== 4}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
+                >
+                  Join
+                </button>
+              </div>
               <button
-                onClick={joinRoom}
-                disabled={loading || joinInput.length !== 4}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
+                onClick={() => { setShowJoin(false); setJoinInput(''); setError('') }}
+                className="w-full py-2 text-neutral-400 text-sm"
               >
-                Join
+                ← Back
               </button>
             </div>
           )}
