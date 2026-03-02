@@ -1,9 +1,11 @@
 export interface Match {
-  id: string
+  id?: number
   player1: string
   player2: string
   completed: boolean
   winner: string | null
+  round: number
+  position: number
 }
 
 export interface Room {
@@ -11,7 +13,6 @@ export interface Room {
   room_code: number
   creator_token: string
   players: string[]
-  matches: Match[]
   created_at: string
 }
 

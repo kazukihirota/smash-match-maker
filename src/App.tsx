@@ -19,15 +19,16 @@ function App() {
     const token = crypto.randomUUID()
     const code = Math.floor(1000 + Math.random() * 9000)
 
+    const defaultPlayers = ['Kazuki', 'Jason', 'Taiga', 'Kiki', 'Brad']
     const { error: insertError } = await supabase
       .from('rooms')
-      .insert({ room_code: code, creator_token: token })
+      .insert({ room_code: code, creator_token: token, players: defaultPlayers })
 
     if (insertError) {
       const retryCode = Math.floor(1000 + Math.random() * 9000)
       const { error: retryError } = await supabase
         .from('rooms')
-        .insert({ room_code: retryCode, creator_token: token })
+        .insert({ room_code: retryCode, creator_token: token, players: defaultPlayers })
 
       if (retryError) {
         setError('Failed to create room. Try again.')
