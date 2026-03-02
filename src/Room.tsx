@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -105,23 +105,38 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
       .eq('room_code', roomCode)
   }
 
-  useEffect(() => {
-    const loadRoom = async () => {
-      const { data } = await supabase
-        .from('rooms')
-        .select('players, matches')
-        .eq('room_code', roomCode)
-        .single()
-      if (data) {
-        setNames(data.players)
-        setMatches(data.matches as Match[])
-      } else {
-        onLeave()
-      }
-      setLoading(false)
+  const refreshRoom = useCallback(async () => {
+    const { data } = await supabase
+      .from('rooms')
+      .select('players, matches')
+      .eq('room_code', roomCode)
+      .single()
+    if (data) {
+      setNames(data.players)
+      setMatches(data.matches as Match[])
+    } else {
+      onLeave()
     }
-    loadRoom()
+    setLoading(false)
   }, [roomCode, onLeave])
+
+  // Initial load
+  useEffect(() => {
+    refreshRoom()
+  }, [refreshRoom])
+
+  // Re-fetch data when returning from background (mobile lock screen, tab switch)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshRoom()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [refreshRoom])
 
   useEffect(() => {
     const channel = supabase
@@ -263,9 +278,18 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
               <span className="text-amber-500 italic"> Match Maker</span>
             </h1>
           </div>
-          <div className="text-right">
-            <div className="text-neutral-400 text-xs uppercase">Room</div>
-            <div className="text-white font-bold text-lg tracking-widest">{roomCode}</div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={refreshRoom}
+              className="text-neutral-400 hover:text-white text-lg"
+              title="Refresh"
+            >
+              ↻
+            </button>
+            <div className="text-right">
+              <div className="text-neutral-400 text-xs uppercase">Room</div>
+              <div className="text-white font-bold text-lg tracking-widest">{roomCode}</div>
+            </div>
           </div>
         </div>
 
