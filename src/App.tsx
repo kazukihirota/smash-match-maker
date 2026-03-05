@@ -1,13 +1,9 @@
 import { useState } from 'react'
 import { supabase } from './supabase.ts'
 import { Room } from './Room.tsx'
-import type { Role } from './types.ts'
-
-const CREATOR_TOKEN_KEY = 'smash-creator-token'
 
 function App() {
   const [roomCode, setRoomCode] = useState<number | null>(null)
-  const [role, setRole] = useState<Role | null>(null)
   const [joinInput, setJoinInput] = useState('')
   const [showJoin, setShowJoin] = useState(false)
   const [error, setError] = useState('')
@@ -19,29 +15,31 @@ function App() {
     const token = crypto.randomUUID()
     const code = Math.floor(1000 + Math.random() * 9000)
 
-    const defaultPlayers = ['Kazuki', 'Jason', 'Taiga', 'Kiki', 'Brad']
+    const { data: defaults } = await supabase
+      .from('player_defaults')
+      .select('player_name')
+      .order('id')
+    const players = defaults?.map(d => d.player_name) ?? []
+
     const { error: insertError } = await supabase
       .from('rooms')
-      .insert({ room_code: code, creator_token: token, players: defaultPlayers })
+      .insert({ room_code: code, creator_token: token, players })
 
     if (insertError) {
       const retryCode = Math.floor(1000 + Math.random() * 9000)
       const { error: retryError } = await supabase
         .from('rooms')
-        .insert({ room_code: retryCode, creator_token: token, players: defaultPlayers })
+        .insert({ room_code: retryCode, creator_token: token, players })
 
       if (retryError) {
         setError('Failed to create room. Try again.')
         setLoading(false)
         return
       }
-      localStorage.setItem(CREATOR_TOKEN_KEY, token)
       setRoomCode(retryCode)
     } else {
-      localStorage.setItem(CREATOR_TOKEN_KEY, token)
       setRoomCode(code)
     }
-    setRole('creator')
     setLoading(false)
   }
 
@@ -75,27 +73,18 @@ function App() {
     }
 
     setRoomCode(code)
-    setRole('viewer')
     setLoading(false)
   }
 
   const leaveRoom = () => {
     setRoomCode(null)
-    setRole(null)
     setJoinInput('')
     setShowJoin(false)
     setError('')
   }
 
-  if (roomCode && role) {
-    return (
-      <Room
-        roomCode={roomCode}
-        role={role}
-        creatorToken={role === 'creator' ? localStorage.getItem(CREATOR_TOKEN_KEY)! : null}
-        onLeave={leaveRoom}
-      />
-    )
+  if (roomCode) {
+    return <Room roomCode={roomCode} onLeave={leaveRoom} />
   }
 
   return (

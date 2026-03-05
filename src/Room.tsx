@@ -15,32 +15,115 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Match, Role } from './types.ts'
+import type { Match, Character, PlayerDefault } from './types.ts'
 import { supabase } from './supabase.ts'
 
 const STORAGE_KEY = 'smash-match-maker-names'
+const CHARACTER_IMAGE_BASE = 'https://www.smashbros.com/assets_v2/img/fighter/thumb_a'
+
+function CharacterBadge({
+  character,
+  onClick,
+}: {
+  character: Character | null
+  onClick?: () => void
+}) {
+  if (character) {
+    return (
+      <img
+        src={`${CHARACTER_IMAGE_BASE}/${character.image_slug}.png`}
+        alt={character.name}
+        title={character.name}
+        onClick={onClick}
+        className="w-8 h-8 rounded-full object-cover bg-neutral-600 cursor-pointer active:scale-90"
+      />
+    )
+  }
+  return (
+    <button
+      onClick={onClick}
+      className="w-8 h-8 rounded-full bg-neutral-600 text-neutral-400 text-xs flex items-center justify-center cursor-pointer active:scale-90"
+      title="Select character"
+    >
+      ?
+    </button>
+  )
+}
+
+function CharacterPicker({
+  characters,
+  onSelect,
+  onClose,
+}: {
+  characters: Character[]
+  onSelect: (character: Character) => void
+  onClose: () => void
+}) {
+  const [search, setSearch] = useState('')
+  const filtered = search
+    ? characters.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
+    : characters
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={onClose}>
+      <div
+        className="bg-neutral-800 rounded-t-2xl w-full max-w-md max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-neutral-700 flex items-center justify-between">
+          <span className="text-white font-bold uppercase text-sm">Select Character</span>
+          <button onClick={onClose} className="text-neutral-400 text-lg">✕</button>
+        </div>
+        <div className="px-4 py-2">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search..."
+            className="w-full px-3 py-2 rounded-lg bg-neutral-700 border border-neutral-600 text-white placeholder-neutral-400 text-sm focus:outline-none focus:border-neutral-500"
+            autoFocus
+          />
+        </div>
+        <div className="overflow-y-auto p-2 grid grid-cols-5 gap-2">
+          {filtered.map(c => (
+            <button
+              key={c.id}
+              onClick={() => onSelect(c)}
+              className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-neutral-700 active:bg-neutral-600 transition-colors"
+            >
+              <img
+                src={`${CHARACTER_IMAGE_BASE}/${c.image_slug}.png`}
+                alt={c.name}
+                className="w-12 h-12 rounded-lg object-cover bg-neutral-600"
+              />
+              <span className="text-neutral-300 text-[10px] leading-tight text-center truncate w-full">
+                {c.name}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function PlayerName({
   name,
   isWinner,
   isLoser,
-  isCreator,
   done,
   onSelect,
 }: {
   name: string
   isWinner: boolean
   isLoser: boolean
-  isCreator: boolean
   done: boolean
   onSelect: () => void
 }) {
   return (
     <span
-      onClick={isCreator ? (e) => { e.stopPropagation(); onSelect() } : undefined}
-      className={`shrink-0 px-3 py-1 rounded-md transition-all ${
-        isCreator ? 'cursor-pointer active:scale-95' : ''
-      } ${
+      onClick={(e) => { e.stopPropagation(); onSelect() }}
+      className={`shrink-0 px-3 py-1 rounded-md transition-all cursor-pointer active:scale-95 ${
         isWinner
           ? 'bg-green-600/30 text-green-400 font-bold'
           : isLoser
@@ -60,17 +143,15 @@ function SortableMatch({
   index,
   done,
   onSelectWinner,
-  onToggle,
-  trackWinner,
-  isCreator,
+  characters,
+  onPickCharacter,
 }: {
   match: Match
   index: number
   done: boolean
   onSelectWinner: (player: string) => void
-  onToggle: () => void
-  trackWinner: boolean
-  isCreator: boolean
+  characters: Character[]
+  onPickCharacter: (matchId: number, playerSlot: 'player1' | 'player2') => void
 }) {
   const sortId = match.id ?? `temp-${match.position}`
   const {
@@ -80,7 +161,7 @@ function SortableMatch({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: sortId, disabled: !isCreator })
+  } = useSortable({ id: sortId })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -88,70 +169,74 @@ function SortableMatch({
     zIndex: isDragging ? 10 : undefined,
   }
 
+  const p1Char = match.player1_character_id
+    ? characters.find(c => c.id === match.player1_character_id) ?? null
+    : null
+  const p2Char = match.player2_character_id
+    ? characters.find(c => c.id === match.player2_character_id) ?? null
+    : null
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`flex items-center rounded-lg px-4 py-3 mb-2 last:mb-0 select-none transition-all ${isDragging ? 'bg-neutral-600 shadow-lg' : done ? 'bg-neutral-800/50 opacity-40' : 'bg-neutral-700/50'}`}
     >
-      {isCreator && (
-        <span
-          {...attributes}
-          {...listeners}
-          className="text-neutral-500 mr-2 cursor-grab active:cursor-grabbing touch-none"
-        >
-          ⠿
-        </span>
-      )}
+      <span
+        {...attributes}
+        {...listeners}
+        className="text-neutral-500 mr-2 cursor-grab active:cursor-grabbing touch-none"
+      >
+        ⠿
+      </span>
       <span className="text-neutral-500 text-sm w-8">{index + 1}.</span>
-      {trackWinner ? (
-        <div className="flex-1 flex items-center justify-center gap-2 font-medium">
-          <PlayerName
-            name={match.player1}
-            isWinner={match.winner === match.player1}
-            isLoser={!!match.winner && match.winner !== match.player1}
-            isCreator={isCreator}
-            done={done}
-            onSelect={() => onSelectWinner(match.player1)}
-          />
-          <span className={`font-bold ${done ? 'text-neutral-500' : 'text-amber-500'}`}>VS</span>
-          <PlayerName
-            name={match.player2}
-            isWinner={match.winner === match.player2}
-            isLoser={!!match.winner && match.winner !== match.player2}
-            isCreator={isCreator}
-            done={done}
-            onSelect={() => onSelectWinner(match.player2)}
-          />
-        </div>
-      ) : (
-        <div
-          onClick={isCreator ? onToggle : undefined}
-          className={`flex-1 flex items-center justify-center gap-3 font-medium ${isCreator ? 'cursor-pointer' : ''} ${done ? 'line-through text-neutral-500' : 'text-white'}`}
-        >
-          <span className="px-3 py-1">{match.player1}</span>
-          <span className={`font-bold ${done ? 'text-neutral-500' : 'text-amber-500'}`}>VS</span>
-          <span className="px-3 py-1">{match.player2}</span>
-        </div>
-      )}
+      <div className="flex-1 flex items-center justify-center gap-2 font-medium">
+        <CharacterBadge
+          character={p1Char}
+          onClick={() => match.id && onPickCharacter(match.id, 'player1')}
+        />
+        <PlayerName
+          name={match.player1}
+          isWinner={match.winner === match.player1}
+          isLoser={!!match.winner && match.winner !== match.player1}
+          done={done}
+          onSelect={() => onSelectWinner(match.player1)}
+        />
+        <span className={`font-bold ${done ? 'text-neutral-500' : 'text-amber-500'}`}>VS</span>
+        <PlayerName
+          name={match.player2}
+          isWinner={match.winner === match.player2}
+          isLoser={!!match.winner && match.winner !== match.player2}
+          done={done}
+          onSelect={() => onSelectWinner(match.player2)}
+        />
+        <CharacterBadge
+          character={p2Char}
+          onClick={() => match.id && onPickCharacter(match.id, 'player2')}
+        />
+      </div>
     </div>
   )
 }
 
 interface RoomProps {
   roomCode: number
-  role: Role
-  creatorToken: string | null
   onLeave: () => void
 }
 
-export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
-  const isCreator = role === 'creator'
+export function Room({ roomCode, onLeave }: RoomProps) {
   const [names, setNames] = useState<string[]>([])
   const [newName, setNewName] = useState('')
   const [matches, setMatches] = useState<Match[]>([])
-  const [trackWinner, setTrackWinner] = useState(false)
+  const [characters, setCharacters] = useState<Character[]>([])
+  const [playerDefaults, setPlayerDefaults] = useState<Record<string, number | null>>({})
+  const [playersOpen, setPlayersOpen] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [pickerTarget, setPickerTarget] = useState<
+    | { type: 'match'; matchId: number; playerSlot: 'player1' | 'player2' }
+    | { type: 'default'; playerName: string }
+    | null
+  >(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -159,7 +244,6 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
   )
 
   const syncPlayers = async (players: string[]) => {
-    if (!isCreator || !creatorToken) return
     await supabase
       .from('rooms')
       .update({ players })
@@ -178,6 +262,20 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
     }
   }, [roomCode])
 
+  const fetchPlayerDefaults = useCallback(async () => {
+    const { data } = await supabase
+      .from('player_defaults')
+      .select('*')
+      .order('id')
+    const map: Record<string, number | null> = {}
+    if (data) {
+      for (const d of data as PlayerDefault[]) {
+        map[d.player_name] = d.default_character_id
+      }
+    }
+    setPlayerDefaults(map)
+  }, [])
+
   const refreshRoom = useCallback(async () => {
     const { data } = await supabase
       .from('rooms')
@@ -190,9 +288,27 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
       onLeave()
       return
     }
-    await fetchMatches()
+    await Promise.all([fetchMatches(), fetchPlayerDefaults()])
     setLoading(false)
-  }, [roomCode, onLeave, fetchMatches])
+  }, [roomCode, onLeave, fetchMatches, fetchPlayerDefaults])
+
+  // Auto-collapse players when matches are loaded
+  useEffect(() => {
+    if (!loading && matches.length > 0) {
+      setPlayersOpen(false)
+    }
+  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch characters once
+  useEffect(() => {
+    supabase
+      .from('characters')
+      .select('*')
+      .order('fighter_number')
+      .then(({ data }) => {
+        if (data) setCharacters(data as Character[])
+      })
+  }, [])
 
   // Initial load
   useEffect(() => {
@@ -236,10 +352,8 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
     }
   }, [roomCode])
 
-  // Realtime: subscribe to matches table for match changes (viewers only —
-  // the creator already has correct state from optimistic updates)
+  // Realtime: subscribe to matches table for match changes
   useEffect(() => {
-    if (isCreator) return
     const channel = supabase
       .channel(`room-matches-${roomCode}`)
       .on(
@@ -259,21 +373,25 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [roomCode, isCreator, fetchMatches])
+  }, [roomCode, fetchMatches])
 
   useEffect(() => {
-    if (isCreator) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(names))
-    }
-  }, [names, isCreator])
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(names))
+  }, [names])
 
-  const addName = () => {
+  const addName = async () => {
     const trimmed = newName.trim()
     if (trimmed && !names.includes(trimmed)) {
       const updated = [...names, trimmed]
       setNames(updated)
       setNewName('')
       syncPlayers(updated)
+      if (!playerDefaults[trimmed]) {
+        setPlayerDefaults(prev => ({ ...prev, [trimmed]: null }))
+        await supabase
+          .from('player_defaults')
+          .upsert({ player_name: trimmed }, { onConflict: 'player_name' })
+      }
     }
   }
 
@@ -282,9 +400,7 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
     setNames(updated)
     setMatches([])
     syncPlayers(updated)
-    if (isCreator) {
-      await supabase.from('matches').delete().eq('room_code', roomCode)
-    }
+    await supabase.from('matches').delete().eq('room_code', roomCode)
   }
 
   const clearAll = async () => {
@@ -292,9 +408,7 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
       setNames([])
       setMatches([])
       syncPlayers([])
-      if (isCreator) {
-        await supabase.from('matches').delete().eq('room_code', roomCode)
-      }
+      await supabase.from('matches').delete().eq('room_code', roomCode)
     }
   }
 
@@ -339,30 +453,45 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
       completed: false,
       winner: null,
       position: idx,
+      player1_character_id: playerDefaults[pair.player1] ?? null,
+      player2_character_id: playerDefaults[pair.player2] ?? null,
     }))
 
     const { data } = await supabase.from('matches').insert(rows).select()
     if (data) {
       setMatches(prev => [...prev, ...(data as Match[])])
+      setPlayersOpen(false)
     }
-  }
-
-  const toggleMatch = async (id: number) => {
-    const match = matches.find(m => m.id === id)
-    if (!match) return
-    const newCompleted = !match.completed
-    setMatches(prev => prev.map(m => m.id === id ? { ...m, completed: newCompleted } : m))
-    await supabase.from('matches').update({ completed: newCompleted }).eq('id', id)
   }
 
   const selectWinner = async (id: number, player: string) => {
     const match = matches.find(m => m.id === id)
     if (!match) return
-    // Tapping the current winner deselects and uncompletes
     const newWinner = match.winner === player ? null : player
     const newCompleted = newWinner !== null
     setMatches(prev => prev.map(m => m.id === id ? { ...m, winner: newWinner, completed: newCompleted } : m))
     await supabase.from('matches').update({ winner: newWinner, completed: newCompleted }).eq('id', id)
+  }
+
+  const selectCharacter = async (character: Character) => {
+    if (!pickerTarget) return
+    if (pickerTarget.type === 'match') {
+      const { matchId, playerSlot } = pickerTarget
+      const columnKey = playerSlot === 'player1' ? 'player1_character_id' : 'player2_character_id'
+      setMatches(prev => prev.map(m => m.id === matchId ? { ...m, [columnKey]: character.id } : m))
+      setPickerTarget(null)
+      await supabase.from('matches').update({ [columnKey]: character.id }).eq('id', matchId)
+    } else {
+      const { playerName } = pickerTarget
+      setPlayerDefaults(prev => ({ ...prev, [playerName]: character.id }))
+      setPickerTarget(null)
+      await supabase
+        .from('player_defaults')
+        .upsert(
+          { player_name: playerName, default_character_id: character.id },
+          { onConflict: 'player_name' }
+        )
+    }
   }
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -376,7 +505,6 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
       const updated = [...rest, ...reordered]
       setMatches(updated)
 
-      // Update position for each reordered match
       const updates = reordered.map((m, idx) => (
         supabase.from('matches').update({ position: idx }).eq('id', m.id!)
       ))
@@ -391,8 +519,6 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
     .sort((a, b) => b - a)
   const completedCount = currentMatches.filter(m => m.completed).length
   const totalMatches = names.length * (names.length - 1) / 2
-  // Viewers see winner mode when any current-round match has a winner
-  const effectiveTrackWinner = trackWinner || (!isCreator && currentMatches.some(m => m.winner))
 
   if (loading) {
     return (
@@ -422,84 +548,124 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
           </div>
         </div>
 
-        {/* Role badge */}
-        {!isCreator && (
-          <div className="text-center mb-4">
-            <span className="text-xs bg-neutral-700 text-neutral-300 px-3 py-1 rounded-full uppercase">
-              View Only
-            </span>
-          </div>
-        )}
-
-        {/* Add Name (creator only) */}
-        {isCreator && (
-          <div className="flex gap-2 mb-4">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addName()}
-              placeholder="Enter Player Name"
-              className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg focus:outline-none focus:border-neutral-500"
-            />
-            <button
-              onClick={addName}
-              disabled={!newName.trim()}
-              className="px-4 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
-            >
-              Add
-            </button>
-          </div>
-        )}
+        {/* Add Name */}
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addName()}
+            placeholder="Enter Player Name"
+            className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg focus:outline-none focus:border-neutral-500"
+          />
+          <button
+            onClick={addName}
+            disabled={!newName.trim()}
+            className="px-4 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
+          >
+            Add
+          </button>
+        </div>
 
         {/* Players List */}
         <div className="bg-neutral-800 rounded-lg mb-4 overflow-hidden">
-          <div className="flex justify-between items-center px-4 py-3 bg-neutral-700">
-            <span className="text-white font-bold uppercase text-sm">Players ({names.length})</span>
-            {isCreator && names.length > 0 && (
-              <button onClick={clearAll} className="text-sm text-red-400 hover:text-red-300">
+          <div
+            className="flex justify-between items-center px-4 py-3 bg-neutral-700 cursor-pointer select-none"
+            onClick={() => setPlayersOpen(prev => !prev)}
+          >
+            <span className="text-white font-bold uppercase text-sm">
+              <span className="text-neutral-400 mr-2 inline-block transition-transform" style={{ transform: playersOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▸</span>
+              Players ({names.length})
+            </span>
+            {names.length > 0 && (
+              <button onClick={(e) => { e.stopPropagation(); clearAll() }} className="text-sm text-red-400 hover:text-red-300">
                 Clear
               </button>
             )}
           </div>
-          <div className="p-4">
+          {!playersOpen && names.length > 0 && (
+            <div className="px-4 py-2 flex gap-1 flex-wrap">
+              {names.map(name => {
+                const charId = playerDefaults[name]
+                const char = charId ? characters.find(c => c.id === charId) : null
+                return char ? (
+                  <img
+                    key={name}
+                    src={`${CHARACTER_IMAGE_BASE}/${char.image_slug}.png`}
+                    alt={name}
+                    title={`${name} — ${char.name}`}
+                    className="w-8 h-8 rounded-full object-cover bg-neutral-600"
+                  />
+                ) : (
+                  <div
+                    key={name}
+                    title={name}
+                    className="w-8 h-8 rounded-full bg-neutral-600 flex items-center justify-center text-neutral-400 text-[10px]"
+                  >
+                    {name[0]}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {playersOpen && <div className="p-4">
             {names.length === 0 ? (
               <p className="text-neutral-400 text-center py-2">
-                {isCreator ? 'Add at least 2 players to begin matchmaking.' : 'Waiting for players...'}
+                Add at least 2 players to begin matchmaking.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {names.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-neutral-700 rounded-full text-white"
-                  >
-                    {name}
-                    {isCreator && (
+              <div className="flex flex-col gap-2">
+                {names.map((name) => {
+                  const defaultCharId = playerDefaults[name]
+                  const defaultChar = defaultCharId
+                    ? characters.find(c => c.id === defaultCharId) ?? null
+                    : null
+                  return (
+                    <div
+                      key={name}
+                      className="flex items-center gap-3 px-3 py-2 bg-neutral-700 rounded-lg"
+                    >
+                      {defaultChar ? (
+                        <img
+                          src={`${CHARACTER_IMAGE_BASE}/${defaultChar.image_slug}.png`}
+                          alt={defaultChar.name}
+                          onClick={() => setPickerTarget({ type: 'default', playerName: name })}
+                          className="w-10 h-10 rounded-lg object-cover bg-neutral-600 cursor-pointer active:scale-90"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setPickerTarget({ type: 'default', playerName: name })}
+                          className="w-10 h-10 rounded-lg bg-neutral-600 text-neutral-400 text-xs flex items-center justify-center cursor-pointer active:scale-90 shrink-0"
+                        >
+                          ?
+                        </button>
+                      )}
+                      <span className="text-white flex-1">{name}</span>
+                      {defaultChar && (
+                        <span className="text-neutral-400 text-xs">{defaultChar.name}</span>
+                      )}
                       <button
                         onClick={() => removeName(name)}
-                        className="ml-1 text-neutral-400 hover:text-white"
+                        className="text-neutral-400 hover:text-white ml-1"
                       >
                         ×
                       </button>
-                    )}
-                  </span>
-                ))}
+                    </div>
+                  )
+                })}
               </div>
             )}
-          </div>
+          </div>}
         </div>
 
-        {/* Generate Button (creator only) */}
-        {isCreator && (
-          <button
-            onClick={generateMatches}
-            disabled={names.length < 2}
-            className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform mb-4 shadow-lg shadow-orange-500/30"
-          >
-            Generate {totalMatches > 0 ? `${totalMatches} Matches` : 'Matches'}
-          </button>
-        )}
+        {/* Generate Button */}
+        <button
+          onClick={generateMatches}
+          disabled={names.length < 2}
+          className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform mb-4 shadow-lg shadow-orange-500/30"
+        >
+          Generate {totalMatches > 0 ? `${totalMatches} Matches` : 'Matches'}
+        </button>
 
         {/* Current Round */}
         {currentMatches.length > 0 && (
@@ -508,17 +674,6 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
               <span className="text-white font-bold uppercase text-sm">
                 Round {currentRound} ({completedCount}/{currentMatches.length})
               </span>
-              {isCreator && (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <span className="text-neutral-300 text-xs uppercase">Track Winner</span>
-                  <div
-                    onClick={() => setTrackWinner(prev => !prev)}
-                    className={`w-9 h-5 rounded-full transition-colors relative ${trackWinner ? 'bg-green-600' : 'bg-neutral-600'}`}
-                  >
-                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${trackWinner ? 'translate-x-4' : ''}`} />
-                  </div>
-                </label>
-              )}
             </div>
             <DndContext
               sensors={sensors}
@@ -534,9 +689,8 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
                       index={idx}
                       done={match.completed}
                       onSelectWinner={(player) => selectWinner(match.id!, player)}
-                      onToggle={() => toggleMatch(match.id!)}
-                      trackWinner={effectiveTrackWinner}
-                      isCreator={isCreator}
+                      characters={characters}
+                      onPickCharacter={(matchId, playerSlot) => setPickerTarget({ type: 'match', matchId, playerSlot })}
                     />
                   ))}
                 </div>
@@ -564,9 +718,8 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
                     index={idx}
                     done={match.completed}
                     onSelectWinner={() => {}}
-                    onToggle={() => {}}
-                    trackWinner={!!match.winner}
-                    isCreator={false}
+                    characters={characters}
+                    onPickCharacter={() => {}}
                   />
                 ))}
               </div>
@@ -574,6 +727,15 @@ export function Room({ roomCode, role, creatorToken, onLeave }: RoomProps) {
           )
         })}
       </div>
+
+      {/* Character Picker Modal */}
+      {pickerTarget && (
+        <CharacterPicker
+          characters={characters}
+          onSelect={selectCharacter}
+          onClose={() => setPickerTarget(null)}
+        />
+      )}
     </div>
   )
 }
