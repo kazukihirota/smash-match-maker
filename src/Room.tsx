@@ -1,20 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-  arrayMove,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import type { Match, Character, PlayerDefault } from './types.ts'
 import { supabase } from './supabase.ts'
 
@@ -81,7 +65,6 @@ function CharacterPicker({
             onChange={e => setSearch(e.target.value)}
             placeholder="Search..."
             className="w-full px-3 py-2 rounded-lg bg-neutral-700 border border-neutral-600 text-white placeholder-neutral-400 text-sm focus:outline-none focus:border-neutral-500"
-            autoFocus
           />
         </div>
         <div className="overflow-y-auto p-2 grid grid-cols-5 gap-2">
@@ -138,7 +121,7 @@ function PlayerName({
   )
 }
 
-function SortableMatch({
+function MatchRow({
   match,
   index,
   done,
@@ -153,22 +136,6 @@ function SortableMatch({
   characters: Character[]
   onPickCharacter: (matchId: number, playerSlot: 'player1' | 'player2') => void
 }) {
-  const sortId = match.id ?? `temp-${match.position}`
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: sortId })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 10 : undefined,
-  }
-
   const p1Char = match.player1_character_id
     ? characters.find(c => c.id === match.player1_character_id) ?? null
     : null
@@ -178,17 +145,8 @@ function SortableMatch({
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      className={`flex items-center rounded-lg px-4 py-3 mb-2 last:mb-0 select-none transition-all ${isDragging ? 'bg-neutral-600 shadow-lg' : done ? 'bg-neutral-800/50 opacity-40' : 'bg-neutral-700/50'}`}
+      className={`flex items-center rounded-lg px-4 py-3 mb-2 last:mb-0 select-none transition-all ${done ? 'bg-neutral-800/50 opacity-40' : 'bg-neutral-700/50'}`}
     >
-      <span
-        {...attributes}
-        {...listeners}
-        className="text-neutral-500 mr-2 cursor-grab active:cursor-grabbing touch-none"
-      >
-        ⠿
-      </span>
       <span className="text-neutral-500 text-sm w-8">{index + 1}.</span>
       <div className="flex-1 flex items-center justify-center gap-2 font-medium">
         <CharacterBadge
@@ -237,11 +195,6 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     | { type: 'default'; playerName: string }
     | null
   >(null)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
-  )
 
   const syncPlayers = async (players: string[]) => {
     await supabase
@@ -524,24 +477,6 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     }
   }
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const current = matches.filter(m => (m.round ?? 1) === currentRound)
-      const rest = matches.filter(m => (m.round ?? 1) !== currentRound)
-      const oldIndex = current.findIndex(m => m.id === active.id)
-      const newIndex = current.findIndex(m => m.id === over.id)
-      const reordered = arrayMove(current, oldIndex, newIndex)
-      const updated = [...rest, ...reordered]
-      setMatches(updated)
-
-      const updates = reordered.map((m, idx) => (
-        supabase.from('matches').update({ position: idx }).eq('id', m.id!)
-      ))
-      await Promise.all(updates)
-    }
-  }
-
   const currentRound = matches.length > 0 ? Math.max(...matches.map(m => m.round ?? 1)) : 0
   const currentMatches = matches.filter(m => (m.round ?? 1) === currentRound)
   const pastRounds = [...new Set(matches.map(m => m.round ?? 1))]
@@ -705,27 +640,19 @@ export function Room({ roomCode, onLeave }: RoomProps) {
                 Round {currentRound} ({completedCount}/{currentMatches.length})
               </span>
             </div>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext items={currentMatches.map(m => m.id ?? `temp-${m.position}`)} strategy={verticalListSortingStrategy}>
-                <div className="p-2">
-                  {currentMatches.map((match, idx) => (
-                    <SortableMatch
-                      key={match.id ?? `temp-${match.position}`}
-                      match={match}
-                      index={idx}
-                      done={match.completed}
-                      onSelectWinner={(player) => selectWinner(match.id!, player)}
-                      characters={characters}
-                      onPickCharacter={(matchId, playerSlot) => setPickerTarget({ type: 'match', matchId, playerSlot })}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+            <div className="p-2">
+              {currentMatches.map((match, idx) => (
+                <MatchRow
+                  key={match.id ?? `temp-${match.position}`}
+                  match={match}
+                  index={idx}
+                  done={match.completed}
+                  onSelectWinner={(player) => selectWinner(match.id!, player)}
+                  characters={characters}
+                  onPickCharacter={(matchId, playerSlot) => setPickerTarget({ type: 'match', matchId, playerSlot })}
+                />
+              ))}
+            </div>
           </div>
         )}
 
@@ -742,7 +669,7 @@ export function Room({ roomCode, onLeave }: RoomProps) {
               </div>
               <div className="p-2">
                 {roundMatches.map((match, idx) => (
-                  <SortableMatch
+                  <MatchRow
                     key={match.id ?? `temp-${match.position}`}
                     match={match}
                     index={idx}
