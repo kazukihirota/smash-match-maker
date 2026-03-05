@@ -359,13 +359,43 @@ export function Room({ roomCode, onLeave }: RoomProps) {
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'matches',
           filter: `room_code=eq.${roomCode}`,
         },
-        () => {
-          fetchMatches()
+        (payload) => {
+          const newMatch = payload.new as Match
+          setMatches(prev => {
+            if (prev.some(m => m.id === newMatch.id)) return prev
+            return [...prev, newMatch]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'matches',
+          filter: `room_code=eq.${roomCode}`,
+        },
+        (payload) => {
+          const updated = payload.new as Match
+          setMatches(prev => prev.map(m => m.id === updated.id ? updated : m))
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'matches',
+          filter: `room_code=eq.${roomCode}`,
+        },
+        (payload) => {
+          const deleted = payload.old as { id: number }
+          setMatches(prev => prev.filter(m => m.id !== deleted.id))
         }
       )
       .subscribe()
@@ -373,7 +403,7 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [roomCode, fetchMatches])
+  }, [roomCode])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(names))
