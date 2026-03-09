@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Match, Character, PlayerDefault } from './types.ts'
 import { supabase } from './supabase.ts'
 
@@ -173,6 +173,102 @@ function MatchRow({
           onClick={() => match.id && onPickCharacter(match.id, 'player2')}
         />
       </div>
+    </div>
+  )
+}
+
+function PlayerDropdown({
+  allDefaults,
+  currentPlayers,
+  onSelect,
+  newName,
+  setNewName,
+}: {
+  allDefaults: string[]
+  currentPlayers: string[]
+  onSelect: (name?: string) => void
+  newName: string
+  setNewName: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const available = allDefaults.filter(
+    p => !currentPlayers.includes(p) && p.toLowerCase().includes(newName.toLowerCase())
+  )
+  const exactMatch = allDefaults.some(p => p.toLowerCase() === newName.trim().toLowerCase())
+  const showAddNew = newName.trim() && !exactMatch
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const handleSelect = (name: string) => {
+    setOpen(false)
+    setNewName('')
+    onSelect(name)
+  }
+
+  const handleAddNew = () => {
+    setOpen(false)
+    onSelect()
+  }
+
+  return (
+    <div ref={ref} className="relative mb-4">
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => { setNewName(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              if (available.length === 1 && !showAddNew) {
+                handleSelect(available[0])
+              } else {
+                handleAddNew()
+              }
+            }
+          }}
+          placeholder="Add Player..."
+          className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg focus:outline-none focus:border-neutral-500"
+        />
+        <button
+          onClick={() => {
+            if (newName.trim()) handleAddNew()
+          }}
+          disabled={!newName.trim()}
+          className="px-4 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+      {open && (available.length > 0 || showAddNew) && (
+        <div className="absolute z-40 left-0 right-12 mt-1 bg-neutral-800 border border-neutral-600 rounded-lg max-h-48 overflow-y-auto shadow-lg">
+          {available.map(name => (
+            <button
+              key={name}
+              onClick={() => handleSelect(name)}
+              className="w-full text-left px-4 py-3 text-white hover:bg-neutral-700 active:bg-neutral-600 first:rounded-t-lg last:rounded-b-lg"
+            >
+              {name}
+            </button>
+          ))}
+          {showAddNew && (
+            <button
+              onClick={handleAddNew}
+              className="w-full text-left px-4 py-3 text-blue-400 hover:bg-neutral-700 active:bg-neutral-600 first:rounded-t-lg last:rounded-b-lg border-t border-neutral-700"
+            >
+              + Add "{newName.trim()}"
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -362,8 +458,8 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(names))
   }, [names])
 
-  const addName = async () => {
-    const trimmed = newName.trim()
+  const addName = async (nameOverride?: string) => {
+    const trimmed = (nameOverride ?? newName).trim()
     if (trimmed && !names.includes(trimmed)) {
       const updated = [...names, trimmed]
       setNames(updated)
@@ -513,24 +609,14 @@ export function Room({ roomCode, onLeave }: RoomProps) {
           </div>
         </div>
 
-        {/* Add Name */}
-        <div className="flex gap-2 mb-4">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addName()}
-            placeholder="Enter Player Name"
-            className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-600 text-white placeholder-neutral-400 text-lg focus:outline-none focus:border-neutral-500"
-          />
-          <button
-            onClick={addName}
-            disabled={!newName.trim()}
-            className="px-4 py-3 bg-blue-600 text-white rounded-lg font-bold uppercase text-sm disabled:opacity-50"
-          >
-            Add
-          </button>
-        </div>
+        {/* Add Player */}
+        <PlayerDropdown
+          allDefaults={Object.keys(playerDefaults)}
+          currentPlayers={names}
+          onSelect={addName}
+          newName={newName}
+          setNewName={setNewName}
+        />
 
         {/* Players List */}
         <div className="bg-neutral-800 rounded-lg mb-4 overflow-hidden">
