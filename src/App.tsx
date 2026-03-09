@@ -1,8 +1,21 @@
 import { useState } from 'react'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { supabase } from './supabase.ts'
 import { Room } from './Room.tsx'
+import { Stats } from './Stats.tsx'
 
 function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/stats" element={<Stats />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+
+function Home() {
   const [roomCode, setRoomCode] = useState<number | null>(null)
   const [joinInput, setJoinInput] = useState('')
   const [showJoin, setShowJoin] = useState(false)
