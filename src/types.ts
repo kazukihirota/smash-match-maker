@@ -29,5 +29,6 @@ export interface Room {
   creator_token: string
   players: string[]
   created_at: string
+  is_active: boolean
 }
 
