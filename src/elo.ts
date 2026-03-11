@@ -10,7 +10,7 @@ function expectedScore(playerElo: number, opponentElo: number): number {
 export async function recalculateScores(): Promise<void> {
   const { data: matches, error } = await supabase
     .from('matches')
-    .select('*')
+    .select('player1, player2, winner')
     .eq('completed', true)
     .not('winner', 'is', null)
     .order('id', { ascending: true })

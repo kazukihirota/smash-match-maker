@@ -17,26 +17,64 @@ interface PlayerDefault {
   default_character_id: number | null
 }
 
+interface HeadToHead {
+  opponent: string
+  wins: number
+  losses: number
+}
+
 export function Scoreboard() {
   const [scores, setScores] = useState<PlayerScore[]>([])
   const [characters, setCharacters] = useState<Character[]>([])
   const [defaults, setDefaults] = useState<PlayerDefault[]>([])
+  const [headToHead, setHeadToHead] = useState<Record<string, HeadToHead[]>>({})
+  const [expanded, setExpanded] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
-      const [{ data: scoreData }, { data: chars }, { data: playerDefaults }] = await Promise.all([
+      const [{ data: scoreData }, { data: chars }, { data: playerDefaults }, { data: matches }] = await Promise.all([
         supabase
           .from('player_scores')
           .select('player_name, elo_rating, wins, losses')
           .order('elo_rating', { ascending: false }),
         supabase.from('characters').select('*').order('fighter_number'),
         supabase.from('player_defaults').select('player_name, default_character_id'),
+        supabase
+          .from('matches')
+          .select('player1, player2, winner')
+          .eq('completed', true)
+          .not('winner', 'is', null),
       ])
 
       if (scoreData) setScores(scoreData as PlayerScore[])
       if (chars) setCharacters(chars as Character[])
       if (playerDefaults) setDefaults(playerDefaults as PlayerDefault[])
+
+      if (matches) {
+        const h2h: Record<string, Record<string, { wins: number; losses: number }>> = {}
+        for (const m of matches) {
+          const winner = m.winner as string
+          const loser = winner === m.player1 ? m.player2 : m.player1
+
+          if (!h2h[winner]) h2h[winner] = {}
+          if (!h2h[winner][loser]) h2h[winner][loser] = { wins: 0, losses: 0 }
+          h2h[winner][loser].wins++
+
+          if (!h2h[loser]) h2h[loser] = {}
+          if (!h2h[loser][winner]) h2h[loser][winner] = { wins: 0, losses: 0 }
+          h2h[loser][winner].losses++
+        }
+
+        const result: Record<string, HeadToHead[]> = {}
+        for (const [player, opponents] of Object.entries(h2h)) {
+          result[player] = Object.entries(opponents)
+            .map(([opponent, record]) => ({ opponent, ...record }))
+            .sort((a, b) => (b.wins - b.losses) - (a.wins - a.losses))
+        }
+        setHeadToHead(result)
+      }
+
       setLoading(false)
     }
     load()
@@ -83,35 +121,54 @@ export function Scoreboard() {
                 const position = index + 1
                 const charId = defaultMap.get(player.player_name)
                 const char = charId ? charMap.get(charId) : null
+                const isExpanded = expanded === player.player_name
+                const records = headToHead[player.player_name] ?? []
 
                 return (
-                  <div key={player.player_name} className="flex items-center gap-3 px-4 py-3">
-                    <span className={`w-6 text-center font-bold ${rankColor(position)}`}>
-                      {position}
-                    </span>
+                  <div key={player.player_name}>
+                    <div
+                      className="flex items-center gap-3 px-4 py-3 cursor-pointer active:bg-neutral-700/50 select-none"
+                      onClick={() => setExpanded(isExpanded ? null : player.player_name)}
+                    >
+                      <span className={`w-6 text-center font-bold ${rankColor(position)}`}>
+                        {position}
+                      </span>
 
-                    {char ? (
-                      <img
-                        src={`${CHARACTER_IMAGE_BASE}/${char.image_slug}.png`}
-                        alt={char.name}
-                        title={char.name}
-                        className="w-8 h-8 rounded-full object-cover bg-neutral-600"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-neutral-600 flex items-center justify-center text-neutral-400 text-xs font-bold">
-                        {player.player_name.charAt(0).toUpperCase()}
+                      {char ? (
+                        <img
+                          src={`${CHARACTER_IMAGE_BASE}/${char.image_slug}.png`}
+                          alt={char.name}
+                          title={char.name}
+                          className="w-8 h-8 rounded-full object-cover bg-neutral-600"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-neutral-600 flex items-center justify-center text-neutral-400 text-xs font-bold">
+                          {player.player_name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+
+                      <span className="text-white font-medium flex-1">{player.player_name}</span>
+
+                      <span className="text-neutral-400 text-sm">
+                        {player.wins}W-{player.losses}L
+                      </span>
+
+                      <span className={`font-bold text-sm min-w-[3rem] text-right ${player.elo_rating >= 1000 ? 'text-green-400' : 'text-red-400'}`}>
+                        {player.elo_rating}
+                      </span>
+                    </div>
+
+                    {isExpanded && records.length > 0 && (
+                      <div className="bg-neutral-900/50 px-4 py-2">
+                        {records.map(r => (
+                          <div key={r.opponent} className="flex items-center gap-3 py-1.5">
+                            <span className="text-neutral-400 text-sm flex-1">vs {r.opponent}</span>
+                            <span className="text-green-400 text-sm font-medium">{r.wins}W</span>
+                            <span className="text-red-400 text-sm font-medium">{r.losses}L</span>
+                          </div>
+                        ))}
                       </div>
                     )}
-
-                    <span className="text-white font-medium flex-1">{player.player_name}</span>
-
-                    <span className="text-neutral-400 text-sm">
-                      {player.wins}W-{player.losses}L
-                    </span>
-
-                    <span className={`font-bold text-sm min-w-[3rem] text-right ${player.elo_rating >= 1000 ? 'text-green-400' : 'text-red-400'}`}>
-                      {player.elo_rating}
-                    </span>
                   </div>
                 )
               })}
