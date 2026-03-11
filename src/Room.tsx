@@ -125,6 +125,7 @@ function MatchRow({
   match,
   index,
   done,
+  saving,
   onSelectWinner,
   characters,
   onPickCharacter,
@@ -132,6 +133,7 @@ function MatchRow({
   match: Match
   index: number
   done: boolean
+  saving: boolean
   onSelectWinner: (player: string) => void
   characters: Character[]
   onPickCharacter: (matchId: number, playerSlot: 'player1' | 'player2') => void
@@ -145,7 +147,7 @@ function MatchRow({
 
   return (
     <div
-      className={`flex items-center rounded-lg px-4 py-3 mb-2 last:mb-0 select-none transition-all ${done ? 'bg-neutral-800/50 opacity-40' : 'bg-neutral-700/50'}`}
+      className={`flex items-center rounded-lg px-4 py-3 mb-2 last:mb-0 select-none transition-all ${saving ? 'pointer-events-none' : ''} ${done ? 'bg-neutral-800/50 opacity-40' : 'bg-neutral-700/50'}`}
     >
       <span className="text-neutral-500 text-sm w-8">{index + 1}.</span>
       <div className="flex-1 flex items-center justify-center gap-2 font-medium">
@@ -286,6 +288,7 @@ export function Room({ roomCode, onLeave }: RoomProps) {
   const [playerDefaults, setPlayerDefaults] = useState<Record<string, number | null>>({})
   const [playersOpen, setPlayersOpen] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [savingMatchIds, setSavingMatchIds] = useState<Set<number>>(new Set())
   const [pickerTarget, setPickerTarget] = useState<
     | { type: 'match'; matchId: number; playerSlot: 'player1' | 'player2' }
     | { type: 'default'; playerName: string }
@@ -543,13 +546,73 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     }
   }
 
+  const updateMatches = async () => {
+    if (newPlayers.length === 0) return
+
+    const maxPosition = currentMatches.length > 0
+      ? Math.max(...currentMatches.map(m => m.position ?? 0))
+      : -1
+
+    // Generate pairs: each new player vs every other player in the room
+    const newPairs: { player1: string; player2: string }[] = []
+    for (const newPlayer of newPlayers) {
+      for (const existing of names) {
+        if (existing === newPlayer) continue
+        // Avoid duplicate pairs between new players
+        if (newPlayers.includes(existing) && existing < newPlayer) continue
+        newPairs.push({ player1: existing, player2: newPlayer })
+      }
+    }
+
+    // Reorder to minimize consecutive matches for same player
+    const shuffled = newPairs.sort(() => Math.random() - 0.5)
+    const result: typeof newPairs = []
+    const remaining = [...shuffled]
+
+    while (remaining.length > 0) {
+      if (result.length === 0) {
+        result.push(remaining.shift()!)
+      } else {
+        const lastMatch = result[result.length - 1]
+        const lastPlayers = [lastMatch.player1, lastMatch.player2]
+        const nextIdx = remaining.findIndex(
+          m => !lastPlayers.includes(m.player1) && !lastPlayers.includes(m.player2)
+        )
+        if (nextIdx !== -1) {
+          result.push(remaining.splice(nextIdx, 1)[0])
+        } else {
+          result.push(remaining.shift()!)
+        }
+      }
+    }
+
+    const rows = result.map((pair, idx) => ({
+      room_code: roomCode,
+      round: currentRound,
+      player1: pair.player1,
+      player2: pair.player2,
+      completed: false,
+      winner: null,
+      position: maxPosition + 1 + idx,
+      player1_character_id: playerDefaults[pair.player1] ?? null,
+      player2_character_id: playerDefaults[pair.player2] ?? null,
+    }))
+
+    const { data } = await supabase.from('matches').insert(rows).select()
+    if (data) {
+      setMatches(prev => [...prev, ...(data as Match[])])
+      setPlayersOpen(false)
+    }
+  }
+
   const selectWinner = async (id: number, player: string) => {
     const match = matches.find(m => m.id === id)
-    if (!match) return
+    if (!match || savingMatchIds.has(id)) return
     const newWinner = match.winner === player ? null : player
     const newCompleted = newWinner !== null
-    setMatches(prev => prev.map(m => m.id === id ? { ...m, winner: newWinner, completed: newCompleted } : m))
+    setSavingMatchIds(prev => new Set(prev).add(id))
     await supabase.from('matches').update({ winner: newWinner, completed: newCompleted }).eq('id', id)
+    setSavingMatchIds(prev => { const next = new Set(prev); next.delete(id); return next })
   }
 
   const selectCharacter = async (character: Character) => {
@@ -581,6 +644,14 @@ export function Room({ roomCode, onLeave }: RoomProps) {
   const completedCount = currentMatches.filter(m => m.completed).length
   const totalMatches = names.length * (names.length - 1) / 2
 
+  // Detect players not yet in current round matches
+  const playersInCurrentRound = currentMatches.length > 0
+    ? [...new Set(currentMatches.flatMap(m => [m.player1, m.player2]))]
+    : []
+  const newPlayers = currentMatches.length > 0
+    ? names.filter(n => !playersInCurrentRound.includes(n))
+    : []
+
   if (loading) {
     return (
       <div className="min-h-screen p-4 flex items-center justify-center">
@@ -589,14 +660,24 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     )
   }
 
+  const closeRoom = async () => {
+    await supabase.from('rooms').update({ is_active: false }).eq('room_code', roomCode)
+    onLeave()
+  }
+
   return (
     <div className="min-h-screen p-4 pb-8">
       <div className="max-w-md mx-auto">
         {/* Header with room code */}
         <div className="flex items-center justify-between mb-4 pt-4">
-          <button onClick={onLeave} className="text-neutral-400 text-sm">
-            ← Leave
-          </button>
+          <div className="flex gap-2">
+            <button onClick={onLeave} className="text-neutral-400 text-sm">
+              ← Leave
+            </button>
+            <button onClick={closeRoom} className="text-red-400 text-sm">
+              Close
+            </button>
+          </div>
           <div className="text-center">
             <h1 className="text-xl font-bold">
               <span className="text-white">Smash</span>
@@ -709,13 +790,21 @@ export function Room({ roomCode, onLeave }: RoomProps) {
           </div>}
         </div>
 
-        {/* Generate Button */}
+        {/* Generate / Update Buttons */}
+        {newPlayers.length > 0 && (
+          <button
+            onClick={updateMatches}
+            className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-xl font-bold uppercase rounded-lg active:scale-[0.98] transition-transform mb-2 shadow-lg shadow-blue-500/30"
+          >
+            Update Matches (+{newPlayers.join(', ')})
+          </button>
+        )}
         <button
           onClick={generateMatches}
           disabled={names.length < 2}
           className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform mb-4 shadow-lg shadow-orange-500/30"
         >
-          Generate {totalMatches > 0 ? `${totalMatches} Matches` : 'Matches'}
+          {newPlayers.length > 0 ? 'New Round' : `Generate ${totalMatches > 0 ? `${totalMatches} Matches` : 'Matches'}`}
         </button>
 
         {/* Current Round */}
@@ -733,6 +822,7 @@ export function Room({ roomCode, onLeave }: RoomProps) {
                   match={match}
                   index={idx}
                   done={match.completed}
+                  saving={savingMatchIds.has(match.id!)}
                   onSelectWinner={(player) => selectWinner(match.id!, player)}
                   characters={characters}
                   onPickCharacter={(matchId, playerSlot) => setPickerTarget({ type: 'match', matchId, playerSlot })}
@@ -760,6 +850,7 @@ export function Room({ roomCode, onLeave }: RoomProps) {
                     match={match}
                     index={idx}
                     done={match.completed}
+                    saving={false}
                     onSelectWinner={() => {}}
                     characters={characters}
                     onPickCharacter={() => {}}
