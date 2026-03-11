@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { supabase } from './supabase.ts'
 import { Room } from './Room.tsx'
 import { Stats } from './Stats.tsx'
+import { Scoreboard } from './Scoreboard.tsx'
 
 function App() {
   return (
@@ -10,6 +11,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/stats" element={<Stats />} />
+        <Route path="/scoreboard" element={<Scoreboard />} />
       </Routes>
     </BrowserRouter>
   )
@@ -40,13 +42,12 @@ function Home() {
   const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([])
 
   useEffect(() => {
-    const cutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+    const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
 
     const fetchRooms = async () => {
       const { data } = await supabase
         .from('rooms')
         .select('room_code, players, created_at')
-        .eq('is_active', true)
         .gte('created_at', cutoff)
         .order('created_at', { ascending: false })
       if (data) setActiveRooms(data)
@@ -112,25 +113,12 @@ function Home() {
 
     const { data, error: fetchError } = await supabase
       .from('rooms')
-      .select('room_code, created_at, is_active')
+      .select('room_code')
       .eq('room_code', code)
       .single()
 
     if (fetchError || !data) {
       setError('Room not found.')
-      setLoading(false)
-      return
-    }
-
-    if (!data.is_active) {
-      setError('Room has been closed.')
-      setLoading(false)
-      return
-    }
-
-    const created = new Date(data.created_at).getTime()
-    if (Date.now() - created > 4 * 60 * 60 * 1000) {
-      setError('Room has expired.')
       setLoading(false)
       return
     }
@@ -165,7 +153,7 @@ function Home() {
             <button
               onClick={createRoom}
               disabled={loading}
-              className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform shadow-lg shadow-orange-500/30"
+              className="w-full py-4 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 text-white text-xl font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform shadow-lg shadow-orange-500/30 cursor-pointer"
             >
               {loading ? 'Creating...' : 'Create Room'}
             </button>
@@ -174,7 +162,7 @@ function Home() {
           {!showJoin ? (
             <button
               onClick={() => setShowJoin(true)}
-              className="w-full py-4 bg-neutral-700 text-white text-xl font-bold uppercase rounded-lg active:scale-[0.98] transition-transform"
+              className="w-full py-4 bg-neutral-700 text-white text-xl font-bold uppercase rounded-lg active:scale-[0.98] transition-transform cursor-pointer"
             >
               Join Room
             </button>
@@ -208,6 +196,13 @@ function Home() {
               </button>
             </div>
           )}
+
+          <Link
+            to="/scoreboard"
+            className="w-full py-4 bg-neutral-800 text-amber-500 text-xl font-bold uppercase rounded-lg active:scale-[0.98] transition-transform text-center block"
+          >
+            Rankings
+          </Link>
         </div>
 
         {error && (

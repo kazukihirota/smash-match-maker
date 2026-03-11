@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Match, Character, PlayerDefault } from './types.ts'
 import { supabase } from './supabase.ts'
+import { recalculateScores } from './elo.ts'
 
 const STORAGE_KEY = 'smash-match-maker-names'
 const CHARACTER_IMAGE_BASE = 'https://www.smashbros.com/assets_v2/img/fighter/thumb_a'
@@ -480,9 +481,17 @@ export function Room({ roomCode, onLeave }: RoomProps) {
   const removeName = async (nameToRemove: string) => {
     const updated = names.filter(name => name !== nameToRemove)
     setNames(updated)
-    setMatches([])
+    // Only remove matches involving the removed player, keep the rest
+    const affectedMatchIds = matches
+      .filter(m => m.player1 === nameToRemove || m.player2 === nameToRemove)
+      .map(m => m.id)
+      .filter((id): id is number => id != null)
+    setMatches(prev => prev.filter(m => m.player1 !== nameToRemove && m.player2 !== nameToRemove))
     syncPlayers(updated)
-    await supabase.from('matches').delete().eq('room_code', roomCode)
+    if (affectedMatchIds.length > 0) {
+      await supabase.from('matches').delete().in('id', affectedMatchIds)
+      recalculateScores()
+    }
   }
 
   const clearAll = async () => {
@@ -613,6 +622,7 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     setSavingMatchIds(prev => new Set(prev).add(id))
     await supabase.from('matches').update({ winner: newWinner, completed: newCompleted }).eq('id', id)
     setSavingMatchIds(prev => { const next = new Set(prev); next.delete(id); return next })
+    recalculateScores()
   }
 
   const selectCharacter = async (character: Character) => {
@@ -660,24 +670,14 @@ export function Room({ roomCode, onLeave }: RoomProps) {
     )
   }
 
-  const closeRoom = async () => {
-    await supabase.from('rooms').update({ is_active: false }).eq('room_code', roomCode)
-    onLeave()
-  }
-
   return (
     <div className="min-h-screen p-4 pb-8">
       <div className="max-w-md mx-auto">
         {/* Header with room code */}
         <div className="flex items-center justify-between mb-4 pt-4">
-          <div className="flex gap-2">
-            <button onClick={onLeave} className="text-neutral-400 text-sm">
-              ← Leave
-            </button>
-            <button onClick={closeRoom} className="text-red-400 text-sm">
-              Close
-            </button>
-          </div>
+          <button onClick={onLeave} className="text-neutral-400 text-sm">
+            ← Leave
+          </button>
           <div className="text-center">
             <h1 className="text-xl font-bold">
               <span className="text-white">Smash</span>
