@@ -112,7 +112,7 @@ function Home() {
 
     const { data, error: fetchError } = await supabase
       .from('rooms')
-      .select('room_code, created_at')
+      .select('room_code, created_at, is_active')
       .eq('room_code', code)
       .single()
 
@@ -122,8 +122,14 @@ function Home() {
       return
     }
 
+    if (!data.is_active) {
+      setError('Room has been closed.')
+      setLoading(false)
+      return
+    }
+
     const created = new Date(data.created_at).getTime()
-    if (Date.now() - created > 24 * 60 * 60 * 1000) {
+    if (Date.now() - created > 4 * 60 * 60 * 1000) {
       setError('Room has expired.')
       setLoading(false)
       return
