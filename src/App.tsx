@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { supabase } from './supabase.ts'
 import { Room } from './Room.tsx'
@@ -15,12 +15,56 @@ function App() {
   )
 }
 
+function timeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ago`
+}
+
 function Home() {
   const [roomCode, setRoomCode] = useState<number | null>(null)
   const [joinInput, setJoinInput] = useState('')
   const [showJoin, setShowJoin] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  interface ActiveRoom {
+    room_code: number
+    players: string[]
+    created_at: string
+  }
+
+  const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([])
+
+  useEffect(() => {
+    const cutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+
+    const fetchRooms = async () => {
+      const { data } = await supabase
+        .from('rooms')
+        .select('room_code, players, created_at')
+        .eq('is_active', true)
+        .gte('created_at', cutoff)
+        .order('created_at', { ascending: false })
+      if (data) setActiveRooms(data)
+    }
+
+    fetchRooms()
+
+    const channel = supabase
+      .channel('lobby-rooms')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'rooms' },
+        () => { fetchRooms() }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   const createRoom = async () => {
     setLoading(true)
@@ -162,6 +206,29 @@ function Home() {
 
         {error && (
           <p className="mt-4 text-red-400 text-center">{error}</p>
+        )}
+
+        {activeRooms.length > 0 && (
+          <div className="w-full mt-8">
+            <h2 className="text-neutral-400 text-xs font-bold uppercase mb-3 tracking-wider">Active Rooms</h2>
+            <div className="space-y-2">
+              {activeRooms.map(room => (
+                <button
+                  key={room.room_code}
+                  onClick={() => setRoomCode(room.room_code)}
+                  className="w-full text-left px-4 py-3 bg-neutral-800 rounded-lg active:bg-neutral-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-white font-bold tracking-widest">{room.room_code}</span>
+                    <span className="text-neutral-500 text-xs">{timeAgo(room.created_at)}</span>
+                  </div>
+                  <div className="text-neutral-400 text-sm truncate">
+                    {room.players.length > 0 ? room.players.join(', ') : 'No players yet'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
