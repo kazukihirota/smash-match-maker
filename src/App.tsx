@@ -206,19 +206,23 @@ function Home() {
             </div>
           )}
 
-          <Link
-            to="/scoreboard"
-            className="w-full py-4 bg-neutral-800 text-amber-500 text-xl font-bold uppercase rounded-lg active:scale-[0.98] transition-transform text-center block"
-          >
-            Rankings
-          </Link>
+          {!showJoin && (
+            <Link
+              to="/scoreboard"
+              className="w-full py-4 bg-neutral-800 text-amber-500 text-xl font-bold uppercase rounded-lg active:scale-[0.98] transition-transform text-center block"
+            >
+              Rankings
+            </Link>
+          )}
 
-          <Link
-            to="/recent"
-            className="w-full py-3 text-neutral-400 text-sm text-center block"
-          >
-            Recent Rooms
-          </Link>
+          {!showJoin && (
+            <Link
+              to="/recent"
+              className="w-full py-3 text-neutral-400 text-sm text-center block"
+            >
+              Recent Rooms
+            </Link>
+          )}
         </div>
 
         {error && (

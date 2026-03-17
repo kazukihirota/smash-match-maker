@@ -192,11 +192,29 @@ function AdminPanel() {
 
   useEffect(() => { loadMatches() }, [])
 
-  const handleRecalculate = async () => {
+  const handleCleanUp = async () => {
     setRecalculating(true)
+
+    // Delete incomplete matches
+    await supabase.from('matches').delete().eq('completed', false)
+
+    // Delete rooms with no matches
+    const { data: allRooms } = await supabase.from('rooms').select('room_code')
+    const { data: matchedRooms } = await supabase.from('matches').select('room_code')
+    if (allRooms && matchedRooms) {
+      const roomCodesWithMatches = new Set(matchedRooms.map(m => m.room_code))
+      const emptyRooms = allRooms.filter(r => !roomCodesWithMatches.has(r.room_code))
+      for (const room of emptyRooms) {
+        await supabase.from('rooms').delete().eq('room_code', room.room_code)
+      }
+    }
+
+    // Recalculate ELO
     await recalculateScores()
+
     setRecalculating(false)
-    toast.success('ELO scores recalculated')
+    await loadMatches()
+    toast.success('Data cleaned up')
   }
 
   const changeWinner = async (matchId: number, newWinner: string) => {
@@ -249,11 +267,11 @@ function AdminPanel() {
         </div>
 
         <button
-          onClick={handleRecalculate}
+          onClick={handleCleanUp}
           disabled={recalculating}
           className="w-full py-3 bg-green-700 text-white font-bold uppercase rounded-lg disabled:opacity-50 active:scale-[0.98] transition-transform mb-4 cursor-pointer"
         >
-          {recalculating ? 'Recalculating...' : 'Recalculate ELO'}
+          {recalculating ? 'Cleaning up...' : 'Clean Up Data'}
         </button>
 
         <PlayerManager onDataChanged={loadMatches} />
