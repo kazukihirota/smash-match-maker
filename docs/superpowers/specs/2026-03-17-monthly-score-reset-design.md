@@ -6,7 +6,10 @@ Add a monthly Elo score view to the Scoreboard so that scores automatically rese
 
 ## Approach
 
-Compute monthly scores client-side by filtering matches on `created_at`. No database schema changes required.
+- **All-time**: continue reading pre-computed scores from the `player_scores` table (no change)
+- **This month**: compute scores client-side by filtering matches on `created_at` and running Elo from scratch (everyone starts at 1000 each month)
+
+No database schema changes required.
 
 ## Changes
 
@@ -28,9 +31,10 @@ export function computeScoresFromMatches(
 
 **Data fetching:**
 - Include `created_at` in the matches select query
-- Compute two score sets client-side using `computeScoresFromMatches()`:
-  - **All-time**: all completed matches
-  - **This month**: matches where `created_at >= YYYY-MM-01T00:00:00Z` (first day of current month in UTC)
+- **All-time tab**: uses existing `player_scores` table query (unchanged)
+- **This month tab**: filters fetched matches to current month (`created_at >= first day of current month, local timezone`), then calls `computeScoresFromMatches()` to get monthly elo/wins/losses
+
+Month boundary uses the client's local timezone so the cutoff feels intuitive to the user.
 
 **UI:**
 - Add a two-segment toggle below the header: "All-time" | "This month"
@@ -48,7 +52,7 @@ export function computeScoresFromMatches(
 | File | Change |
 |------|--------|
 | `src/elo.ts` | Extract `computeScoresFromMatches()`, refactor `recalculateScores()` to use it |
-| `src/Scoreboard.tsx` | Add tab state, monthly match filtering, compute scores client-side |
+| `src/Scoreboard.tsx` | Add tab state, monthly match filtering, compute monthly scores client-side |
 
 ## Out of Scope
 
