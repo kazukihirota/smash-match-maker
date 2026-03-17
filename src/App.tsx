@@ -1,17 +1,23 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from './supabase.ts'
 import { Room } from './Room.tsx'
 import { Stats } from './Stats.tsx'
 import { Scoreboard } from './Scoreboard.tsx'
+import { Admin } from './Admin.tsx'
+import { RecentRooms } from './RecentRooms.tsx'
+import { Toaster } from 'sonner'
 
 function App() {
   return (
     <BrowserRouter>
+      <Toaster theme="dark" position="top-center" richColors />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/stats" element={<Stats />} />
         <Route path="/scoreboard" element={<Scoreboard />} />
+        <Route path="/recent" element={<RecentRoomsPage />} />
+        <Route path="/admin" element={<Admin />} />
       </Routes>
     </BrowserRouter>
   )
@@ -27,7 +33,10 @@ function timeAgo(dateStr: string): string {
 }
 
 function Home() {
-  const [roomCode, setRoomCode] = useState<number | null>(null)
+  const location = useLocation()
+  const [roomCode, setRoomCode] = useState<number | null>(
+    (location.state as { roomCode?: number })?.roomCode ?? null
+  )
   const [joinInput, setJoinInput] = useState('')
   const [showJoin, setShowJoin] = useState(false)
   const [error, setError] = useState('')
@@ -203,6 +212,13 @@ function Home() {
           >
             Rankings
           </Link>
+
+          <Link
+            to="/recent"
+            className="w-full py-3 text-neutral-400 text-sm text-center block"
+          >
+            Recent Rooms
+          </Link>
         </div>
 
         {error && (
@@ -234,6 +250,11 @@ function Home() {
       </div>
     </div>
   )
+}
+
+function RecentRoomsPage() {
+  const navigate = useNavigate()
+  return <RecentRooms onJoin={(code) => navigate('/', { state: { roomCode: code } })} />
 }
 
 export default App
