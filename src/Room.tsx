@@ -481,16 +481,15 @@ export function Room({ roomCode, onLeave }: RoomProps) {
   const removeName = async (nameToRemove: string) => {
     const updated = names.filter(name => name !== nameToRemove)
     setNames(updated)
-    // Only remove matches involving the removed player, keep the rest
-    const affectedMatchIds = matches
-      .filter(m => m.player1 === nameToRemove || m.player2 === nameToRemove)
+    // Only remove incomplete matches involving the removed player, keep completed ones
+    const incompleteMatchIds = matches
+      .filter(m => !m.completed && (m.player1 === nameToRemove || m.player2 === nameToRemove))
       .map(m => m.id)
       .filter((id): id is number => id != null)
-    setMatches(prev => prev.filter(m => m.player1 !== nameToRemove && m.player2 !== nameToRemove))
+    setMatches(prev => prev.filter(m => m.completed || (m.player1 !== nameToRemove && m.player2 !== nameToRemove)))
     syncPlayers(updated)
-    if (affectedMatchIds.length > 0) {
-      await supabase.from('matches').delete().in('id', affectedMatchIds)
-      recalculateScores()
+    if (incompleteMatchIds.length > 0) {
+      await supabase.from('matches').delete().in('id', incompleteMatchIds)
     }
   }
 

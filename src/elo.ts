@@ -7,19 +7,9 @@ function expectedScore(playerElo: number, opponentElo: number): number {
   return 1 / (1 + Math.pow(10, (opponentElo - playerElo) / 400))
 }
 
-export async function recalculateScores(): Promise<void> {
-  const { data: matches, error } = await supabase
-    .from('matches')
-    .select('player1, player2, winner')
-    .eq('completed', true)
-    .not('winner', 'is', null)
-    .order('id', { ascending: true })
-
-  if (error) {
-    console.error('Failed to fetch matches for Elo recalculation:', error)
-    return
-  }
-
+export function computeScoresFromMatches(
+  matches: { player1: string; player2: string; winner: string }[]
+): { elo: Record<string, number>; wins: Record<string, number>; losses: Record<string, number> } {
   const elo: Record<string, number> = {}
   const wins: Record<string, number> = {}
   const losses: Record<string, number> = {}
@@ -51,6 +41,24 @@ export async function recalculateScores(): Promise<void> {
       losses[player1]++
     }
   }
+
+  return { elo, wins, losses }
+}
+
+export async function recalculateScores(): Promise<void> {
+  const { data: matches, error } = await supabase
+    .from('matches')
+    .select('player1, player2, winner')
+    .eq('completed', true)
+    .not('winner', 'is', null)
+    .order('id', { ascending: true })
+
+  if (error) {
+    console.error('Failed to fetch matches for Elo recalculation:', error)
+    return
+  }
+
+  const { elo, wins, losses } = computeScoresFromMatches(matches)
 
   const rows = Object.keys(elo).map((player_name) => ({
     player_name,

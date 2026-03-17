@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import type { Character } from './types.ts'
 import { supabase } from './supabase.ts'
+import { computeScoresFromMatches } from './elo.ts'
 
 const CHARACTER_IMAGE_BASE = 'https://www.smashbros.com/assets_v2/img/fighter/thumb_a'
+
+type Tab = 'month' | 'alltime'
 
 interface PlayerScore {
   player_name: string
@@ -23,17 +26,55 @@ interface HeadToHead {
   losses: number
 }
 
+interface MatchRow {
+  player1: string
+  player2: string
+  winner: string
+  created_at: string
+}
+
+function buildHeadToHead(matches: MatchRow[]): Record<string, HeadToHead[]> {
+  const h2h: Record<string, Record<string, { wins: number; losses: number }>> = {}
+  for (const m of matches) {
+    const winner = m.winner
+    const loser = winner === m.player1 ? m.player2 : m.player1
+
+    if (!h2h[winner]) h2h[winner] = {}
+    if (!h2h[winner][loser]) h2h[winner][loser] = { wins: 0, losses: 0 }
+    h2h[winner][loser].wins++
+
+    if (!h2h[loser]) h2h[loser] = {}
+    if (!h2h[loser][winner]) h2h[loser][winner] = { wins: 0, losses: 0 }
+    h2h[loser][winner].losses++
+  }
+
+  const result: Record<string, HeadToHead[]> = {}
+  for (const [player, opponents] of Object.entries(h2h)) {
+    result[player] = Object.entries(opponents)
+      .map(([opponent, record]) => ({ opponent, ...record }))
+      .sort((a, b) => (b.wins - b.losses) - (a.wins - a.losses))
+  }
+  return result
+}
+
+function getMonthStart(): string {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  return start.toISOString()
+}
+
 export function Scoreboard() {
-  const [scores, setScores] = useState<PlayerScore[]>([])
+  const [tab, setTab] = useState<Tab>('month')
+  const [allTimeScores, setAllTimeScores] = useState<PlayerScore[]>([])
+  const [matches, setMatches] = useState<MatchRow[]>([])
   const [characters, setCharacters] = useState<Character[]>([])
   const [defaults, setDefaults] = useState<PlayerDefault[]>([])
-  const [headToHead, setHeadToHead] = useState<Record<string, HeadToHead[]>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
-      const [{ data: scoreData }, { data: chars }, { data: playerDefaults }, { data: matches }] = await Promise.all([
+      const [{ data: scoreData }, { data: chars }, { data: playerDefaults }, { data: matchData }] = await Promise.all([
         supabase
           .from('player_scores')
           .select('player_name, elo_rating, wins, losses')
@@ -42,43 +83,44 @@ export function Scoreboard() {
         supabase.from('player_defaults').select('player_name, default_character_id'),
         supabase
           .from('matches')
-          .select('player1, player2, winner')
+          .select('player1, player2, winner, created_at')
           .eq('completed', true)
-          .not('winner', 'is', null),
+          .not('winner', 'is', null)
+          .order('id', { ascending: true }),
       ])
 
-      if (scoreData) setScores(scoreData as PlayerScore[])
+      if (scoreData) setAllTimeScores(scoreData as PlayerScore[])
       if (chars) setCharacters(chars as Character[])
       if (playerDefaults) setDefaults(playerDefaults as PlayerDefault[])
-
-      if (matches) {
-        const h2h: Record<string, Record<string, { wins: number; losses: number }>> = {}
-        for (const m of matches) {
-          const winner = m.winner as string
-          const loser = winner === m.player1 ? m.player2 : m.player1
-
-          if (!h2h[winner]) h2h[winner] = {}
-          if (!h2h[winner][loser]) h2h[winner][loser] = { wins: 0, losses: 0 }
-          h2h[winner][loser].wins++
-
-          if (!h2h[loser]) h2h[loser] = {}
-          if (!h2h[loser][winner]) h2h[loser][winner] = { wins: 0, losses: 0 }
-          h2h[loser][winner].losses++
-        }
-
-        const result: Record<string, HeadToHead[]> = {}
-        for (const [player, opponents] of Object.entries(h2h)) {
-          result[player] = Object.entries(opponents)
-            .map(([opponent, record]) => ({ opponent, ...record }))
-            .sort((a, b) => (b.wins - b.losses) - (a.wins - a.losses))
-        }
-        setHeadToHead(result)
-      }
+      if (matchData) setMatches(matchData as MatchRow[])
 
       setLoading(false)
     }
     load()
   }, [])
+
+  const monthStart = useMemo(() => getMonthStart(), [])
+  const monthlyMatches = useMemo(
+    () => matches.filter(m => m.created_at >= monthStart),
+    [matches, monthStart]
+  )
+
+  const monthlyScores = useMemo(() => {
+    if (monthlyMatches.length === 0) return []
+    const { elo, wins, losses } = computeScoresFromMatches(monthlyMatches)
+    return Object.keys(elo)
+      .map(player_name => ({
+        player_name,
+        elo_rating: elo[player_name],
+        wins: wins[player_name],
+        losses: losses[player_name],
+      }))
+      .sort((a, b) => b.elo_rating - a.elo_rating)
+  }, [monthlyMatches])
+
+  const activeMatches = tab === 'month' ? monthlyMatches : matches
+  const activeScores = tab === 'month' ? monthlyScores : allTimeScores
+  const headToHead = useMemo(() => buildHeadToHead(activeMatches), [activeMatches])
 
   const charMap = new Map(characters.map(c => [c.id, c]))
   const defaultMap = new Map(defaults.map(d => [d.player_name, d.default_character_id]))
@@ -112,12 +154,37 @@ export function Scoreboard() {
           <div className="w-14" />
         </div>
 
-        {scores.length === 0 ? (
-          <p className="text-neutral-400 text-center">No matches played yet.</p>
+        <div className="flex rounded-lg overflow-hidden mb-4">
+          <button
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              tab === 'month'
+                ? 'bg-amber-500 text-neutral-900'
+                : 'bg-neutral-700 text-neutral-300'
+            }`}
+            onClick={() => setTab('month')}
+          >
+            This Month
+          </button>
+          <button
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              tab === 'alltime'
+                ? 'bg-amber-500 text-neutral-900'
+                : 'bg-neutral-700 text-neutral-300'
+            }`}
+            onClick={() => setTab('alltime')}
+          >
+            All-time
+          </button>
+        </div>
+
+        {activeScores.length === 0 ? (
+          <p className="text-neutral-400 text-center">
+            {tab === 'month' ? 'No matches this month.' : 'No matches played yet.'}
+          </p>
         ) : (
           <div className="bg-neutral-800 rounded-lg overflow-hidden">
             <div className="divide-y divide-neutral-700/50">
-              {scores.map((player, index) => {
+              {activeScores.map((player, index) => {
                 const position = index + 1
                 const charId = defaultMap.get(player.player_name)
                 const char = charId ? charMap.get(charId) : null
