@@ -7,19 +7,22 @@ Password-protected admin page for adjusting match results, managing player names
 ## Server-side Auth
 
 - Postgres function `verify_admin_password(password text) returns boolean`
-- Password hash stored via `ALTER DATABASE ... SET app.admin_password_hash`
+- Password hash stored in a single-row `admin_config` table with RLS restricted to deny all client reads
+- The RPC function reads the hash internally (SECURITY DEFINER) so the client never sees it
 - Uses pgcrypto `crypt()` to verify bcrypt hash of `Password0129`
 - No tokens/sessions — client stores auth state in React state (resets on refresh)
 - RPC call: `supabase.rpc('verify_admin_password', { password })`
 
 ## Database Changes
 
-**New migration only** — no new tables.
+**New migration** — one new table + one function.
 
 Migration contents:
 1. Enable pgcrypto extension (if not already)
-2. Set `app.admin_password_hash` to bcrypt hash of `Password0129`
-3. Create `verify_admin_password(password text) returns boolean` function using `crypt()`
+2. Create `admin_config` table (single row: `id integer PRIMARY KEY DEFAULT 1, password_hash text NOT NULL`)
+3. RLS on `admin_config`: enable RLS, no policies (blocks all client access)
+4. Insert the bcrypt hash of `Password0129`
+5. Create `verify_admin_password(password text) returns boolean` as SECURITY DEFINER — reads hash from `admin_config` and compares with `crypt()`
 
 ## Admin Page UI
 
@@ -34,16 +37,17 @@ Migration contents:
 ### Authenticated View
 
 #### Matches Management
-- All completed matches listed, grouped by round (most recent first)
+- All matches listed, grouped by room then by round within each room (most recent first)
 - Each row: player1 vs player2, winner highlighted in green
-- Click either player name to swap winner
+- Click either player name to change winner (only updates `winner` column; `completed` stays true)
 - Delete button per match (with confirmation)
-- "Recalculate ELO" button at top
+- "Recalculate ELO" button at top — runs `recalculateScores()` after changes
 
 #### Player Names
 - List all players from `player_defaults`
 - Inline edit: tap name → text input, save on Enter/blur
-- Rename updates across: `player_defaults`, `player_scores`, `matches` (player1, player2, winner)
+- Validate uniqueness before saving — show error if name already exists
+- Rename updates across: `player_defaults`, `player_scores`, `matches` (player1, player2, winner), and `rooms.players` array
 
 #### Navigation
 - Back arrow to Home (top left)
@@ -58,7 +62,7 @@ Client → supabase.rpc('verify_admin_password', { password }) → boolean
 
 ### Change Winner
 ```
-Update match winner/completed in matches table → recalculateScores()
+Update match.winner in matches table → recalculateScores()
 ```
 
 ### Delete Match
@@ -68,14 +72,16 @@ Delete from matches table → recalculateScores()
 
 ### Edit Player Name
 ```
-Update player_defaults.player_name
+Validate new name not already in player_defaults (UNIQUE constraint)
+→ Update player_defaults.player_name
 → Update matches (player1, player2, winner where applicable)
 → Update player_scores.player_name
+→ Update rooms.players array (replace old name with new name)
 → recalculateScores()
 ```
 
 ## Files to Create/Modify
 
 - **Create:** `src/Admin.tsx` — admin page component
-- **Create:** `supabase/migrations/<timestamp>_admin_password.sql` — RPC function + password hash
+- **Create:** `supabase/migrations/<timestamp>_admin_password.sql` — admin_config table + RPC function
 - **Modify:** `src/App.tsx` — add `/admin` route
