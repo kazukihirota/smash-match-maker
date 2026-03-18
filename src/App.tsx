@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from './supabase.ts'
 import { Room } from './Room.tsx'
 import { Stats } from './Stats.tsx'
@@ -14,6 +14,7 @@ function App() {
       <Toaster theme="dark" position="top-center" richColors />
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/room/:code" element={<RoomPage />} />
         <Route path="/stats" element={<Stats />} />
         <Route path="/scoreboard" element={<Scoreboard />} />
         <Route path="/recent" element={<RecentRoomsPage />} />
@@ -33,10 +34,7 @@ function timeAgo(dateStr: string): string {
 }
 
 function Home() {
-  const location = useLocation()
-  const [roomCode, setRoomCode] = useState<number | null>(
-    (location.state as { roomCode?: number })?.roomCode ?? null
-  )
+  const navigate = useNavigate()
   const [joinInput, setJoinInput] = useState('')
   const [showJoin, setShowJoin] = useState(false)
   const [error, setError] = useState('')
@@ -103,9 +101,9 @@ function Home() {
         setLoading(false)
         return
       }
-      setRoomCode(retryCode)
+      navigate(`/room/${retryCode}`)
     } else {
-      setRoomCode(code)
+      navigate(`/room/${code}`)
     }
     setLoading(false)
   }
@@ -132,19 +130,8 @@ function Home() {
       return
     }
 
-    setRoomCode(code)
+    navigate(`/room/${code}`)
     setLoading(false)
-  }
-
-  const leaveRoom = () => {
-    setRoomCode(null)
-    setJoinInput('')
-    setShowJoin(false)
-    setError('')
-  }
-
-  if (roomCode) {
-    return <Room roomCode={roomCode} onLeave={leaveRoom} />
   }
 
   return (
@@ -236,7 +223,7 @@ function Home() {
               {activeRooms.map(room => (
                 <button
                   key={room.room_code}
-                  onClick={() => setRoomCode(room.room_code)}
+                  onClick={() => navigate(`/room/${room.room_code}`)}
                   className="w-full text-left px-4 py-3 bg-neutral-800 rounded-lg active:bg-neutral-700 transition-colors"
                 >
                   <div className="flex items-center justify-between mb-1">
@@ -256,9 +243,28 @@ function Home() {
   )
 }
 
+function RoomPage() {
+  const { code } = useParams()
+  const navigate = useNavigate()
+  const roomCode = parseInt(code ?? '', 10)
+
+  if (isNaN(roomCode) || roomCode < 1000 || roomCode > 9999) {
+    return (
+      <div className="min-h-screen p-4 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-400 mb-4">Invalid room code.</p>
+          <button onClick={() => navigate('/')} className="text-amber-500 underline">Go Home</button>
+        </div>
+      </div>
+    )
+  }
+
+  return <Room roomCode={roomCode} onLeave={() => navigate('/')} />
+}
+
 function RecentRoomsPage() {
   const navigate = useNavigate()
-  return <RecentRooms onJoin={(code) => navigate('/', { state: { roomCode: code } })} />
+  return <RecentRooms onJoin={(code) => navigate(`/room/${code}`)} />
 }
 
 export default App
