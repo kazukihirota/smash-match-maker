@@ -45,14 +45,26 @@ function CharacterPicker({
   onClose: () => void
 }) {
   const [search, setSearch] = useState('')
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const filtered = search
     ? characters.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
     : characters
+
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const onResize = () => {
+      setKeyboardHeight(Math.round(window.innerHeight - vv.height))
+    }
+    vv.addEventListener('resize', onResize)
+    return () => vv.removeEventListener('resize', onResize)
+  }, [])
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center" onClick={onClose}>
       <div
         className="bg-neutral-800 rounded-t-2xl w-full max-w-md max-h-[80vh] flex flex-col"
+        style={keyboardHeight > 0 ? { marginBottom: keyboardHeight, maxHeight: `calc(80vh - ${keyboardHeight}px)` } : undefined}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-4 border-b border-neutral-700 flex items-center justify-between">
