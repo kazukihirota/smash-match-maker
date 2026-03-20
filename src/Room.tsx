@@ -689,6 +689,22 @@ export function Room({ roomCode, onLeave }: RoomProps) {
           { player_name: playerName, default_character_id: character.id },
           { onConflict: 'player_name' }
         )
+      // Update character in all uncompleted matches for this player
+      const uncompletedAsP1 = matches.filter(m => !m.completed && m.player1 === playerName)
+      const uncompletedAsP2 = matches.filter(m => !m.completed && m.player2 === playerName)
+      setMatches(prev => prev.map(m => {
+        if (!m.completed && m.player1 === playerName) return { ...m, player1_character_id: character.id }
+        if (!m.completed && m.player2 === playerName) return { ...m, player2_character_id: character.id }
+        return m
+      }))
+      const p1Ids = uncompletedAsP1.map(m => m.id).filter(Boolean) as number[]
+      const p2Ids = uncompletedAsP2.map(m => m.id).filter(Boolean) as number[]
+      if (p1Ids.length > 0) {
+        await supabase.from('matches').update({ player1_character_id: character.id }).in('id', p1Ids)
+      }
+      if (p2Ids.length > 0) {
+        await supabase.from('matches').update({ player2_character_id: character.id }).in('id', p2Ids)
+      }
     }
   }
 
