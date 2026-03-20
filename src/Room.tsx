@@ -569,10 +569,6 @@ export function Room({ roomCode, onLeave }: RoomProps) {
   const updateMatches = async () => {
     if (newPlayers.length === 0) return
 
-    const maxPosition = currentMatches.length > 0
-      ? Math.max(...currentMatches.map(m => m.position ?? 0))
-      : -1
-
     // Generate pairs: each new player vs every other player in the room
     const newPairs: { player1: string; player2: string }[] = []
     for (const newPlayer of newPlayers) {
@@ -584,13 +580,38 @@ export function Room({ roomCode, onLeave }: RoomProps) {
       }
     }
 
+    // Split current round into completed and uncompleted
+    const completedMatches = currentMatches.filter(m => m.completed)
+    const uncompletedMatches = currentMatches.filter(m => !m.completed)
+
+    // Base position: after all completed matches
+    const basePosition = completedMatches.length > 0
+      ? Math.max(...completedMatches.map(m => m.position ?? 0)) + 1
+      : 0
+
+    // Combine uncompleted existing matches + new pairs, then reshuffle together
+    const allPending: { player1: string; player2: string; existingId?: number }[] = [
+      ...uncompletedMatches.map(m => ({ player1: m.player1, player2: m.player2, existingId: m.id! })),
+      ...newPairs,
+    ]
+    const shuffled = allPending.sort(() => Math.random() - 0.5)
+
     // Reorder to minimize consecutive matches for same player
-    const shuffled = newPairs.sort(() => Math.random() - 0.5)
-    const result: typeof newPairs = []
+    // Anchor from the last completed match if there is one
+    const result: typeof allPending = []
     const remaining = [...shuffled]
+    const lastCompleted = completedMatches.length > 0
+      ? completedMatches.reduce((a, b) => ((a.position ?? 0) > (b.position ?? 0) ? a : b))
+      : null
 
     while (remaining.length > 0) {
-      if (result.length === 0) {
+      if (result.length === 0 && lastCompleted) {
+        const anchor = [lastCompleted.player1, lastCompleted.player2]
+        const nextIdx = remaining.findIndex(
+          m => !anchor.includes(m.player1) && !anchor.includes(m.player2)
+        )
+        result.push(remaining.splice(nextIdx !== -1 ? nextIdx : 0, 1)[0])
+      } else if (result.length === 0) {
         result.push(remaining.shift()!)
       } else {
         const lastMatch = result[result.length - 1]
@@ -606,23 +627,37 @@ export function Room({ roomCode, onLeave }: RoomProps) {
       }
     }
 
-    const rows = result.map((pair, idx) => ({
-      room_code: roomCode,
-      round: currentRound,
-      player1: pair.player1,
-      player2: pair.player2,
-      completed: false,
-      winner: null,
-      position: maxPosition + 1 + idx,
-      player1_character_id: playerDefaults[pair.player1] ?? null,
-      player2_character_id: playerDefaults[pair.player2] ?? null,
-    }))
+    // Update positions of existing uncompleted matches
+    const existingUpdates = result
+      .filter(r => r.existingId)
+      .map((r, _i) => ({ id: r.existingId!, position: basePosition + result.indexOf(r) }))
 
-    const { data } = await supabase.from('matches').insert(rows).select()
-    if (data) {
-      setMatches(prev => [...prev, ...(data as Match[])])
-      setPlayersOpen(false)
+    for (const u of existingUpdates) {
+      await supabase.from('matches').update({ position: u.position }).eq('id', u.id)
     }
+
+    // Insert new matches
+    const newRows = result
+      .filter(r => !r.existingId)
+      .map(r => ({
+        room_code: roomCode,
+        round: currentRound,
+        player1: r.player1,
+        player2: r.player2,
+        completed: false,
+        winner: null,
+        position: basePosition + result.indexOf(r),
+        player1_character_id: playerDefaults[r.player1] ?? null,
+        player2_character_id: playerDefaults[r.player2] ?? null,
+      }))
+
+    if (newRows.length > 0) {
+      await supabase.from('matches').insert(newRows).select()
+    }
+
+    // Re-fetch to get consistent state
+    await fetchMatches()
+    setPlayersOpen(false)
   }
 
   const selectWinner = async (id: number, player: string) => {
