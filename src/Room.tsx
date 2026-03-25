@@ -6,6 +6,40 @@ import { recalculateScores } from './elo.ts'
 const STORAGE_KEY = 'smash-match-maker-names'
 const CHARACTER_IMAGE_BASE = 'https://www.smashbros.com/assets_v2/img/fighter/thumb_a'
 
+const CHARACTER_ALIASES: Record<string, string[]> = {
+  'R.O.B.': ['ROB', 'Robot'],
+  'Mr. Game & Watch': ['GnW', 'GW', 'Game and Watch', 'Game Watch'],
+  'Dr. Mario': ['Doc', 'Dr Mario'],
+  'Captain Falcon': ['CF', 'Falcon'],
+  'King Dedede': ['DDD', 'D3', 'Dedede'],
+  'King K. Rool': ['KKR', 'K Rool', 'Krool'],
+  'Zero Suit Samus': ['ZSS'],
+  'Pokemon Trainer': ['PT', 'Pkmn'],
+  'Donkey Kong': ['DK'],
+  'Diddy Kong': ['Diddy'],
+  'Ice Climbers': ['ICs', 'Icies'],
+  'Meta Knight': ['MK'],
+  'Mega Man': ['Megaman'],
+  'Pac-Man': ['Pacman'],
+  'Bowser Jr.': ['Jr', 'Junior'],
+  'Piranha Plant': ['Plant', 'PP'],
+  'Banjo & Kazooie': ['BnK', 'Banjo', 'Banjo and Kazooie'],
+  'Rosalina & Luma': ['Rosa', 'Rosalina'],
+  'Pyra / Mythra': ['Pythra', 'Pyra', 'Mythra'],
+  'Min Min': ['Minmin'],
+  'Little Mac': ['Mac'],
+  'Duck Hunt': ['DHD', 'Duck Hunt Duo'],
+  'Wii Fit Trainer': ['WFT', 'Wii Fit'],
+  'Toon Link': ['TL', 'Tink'],
+  'Young Link': ['YL', 'Yink'],
+  'Dark Samus': ['DSamus'],
+  'Dark Pit': ['DPit', 'Pittoo'],
+  'Mii Brawler': ['Mii'],
+  'Mii Swordfighter': ['Mii Sword'],
+  'Mii Gunner': ['Mii Gun'],
+  'Incineroar': ['Incin'],
+}
+
 function CharacterBadge({
   character,
   onClick,
@@ -47,7 +81,14 @@ function CharacterPicker({
   const [search, setSearch] = useState('')
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const filtered = search
-    ? characters.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
+    ? characters.filter(c => {
+        const q = search.toLowerCase().replace(/[^a-z0-9 ]/g, '')
+        const name = c.name.toLowerCase()
+        const stripped = name.replace(/[^a-z0-9 ]/g, '')
+        if (stripped.includes(q) || name.includes(search.toLowerCase())) return true
+        const aliases = CHARACTER_ALIASES[c.name]
+        return aliases?.some(a => a.toLowerCase().includes(q))
+      })
     : characters
 
   useEffect(() => {
